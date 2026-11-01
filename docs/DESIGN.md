@@ -40,6 +40,10 @@ Alternatives were considered and rejected for this use case:
 4. Be boring: a CLI, a config file, a timer. No daemon, no web UI, no database.
 5. Be reviewable: fewer than ~1,500 lines of Rust, seven commands.
 6. Target exactly one platform: Linux with nftables (kernel 5.x+, `nft` 1.0+).
+7. IPv4 and IPv6 are treated identically: same country list, same sources, same
+   rules, same thresholds logic, same status output. There is no IPv6 switch and
+   no special case anywhere in the code; every code path is written once over an
+   address family parameter.
 
 ## 3. Non-goals
 
@@ -370,8 +374,6 @@ An Ansible role will ship these; the CLI edits only the `countries:` block of `c
   Must not include the country of any legitimate remote peer.
 - Should `fgw update` also refresh countries that were removed, to keep `fgw show`
   useful for them? Probably yes, cache everything ever requested, cap at 30 days.
-- IPv6: block by default with the same list, or make it opt-in? Proposed: same list,
-  same behaviour, no special casing.
 - Overlap with CrowdSec: a CrowdSec-banned IP inside a blocked country is dropped
   twice. Harmless, but `fgw status` could note how many CrowdSec decisions are
   already covered. Nice-to-have, not v1.
@@ -389,4 +391,5 @@ An Ansible role will ship these; the CLI edits only the `countries:` block of `c
 | 2026-11-01 | Name: firegeowall, binary `fgw`. Dual MIT / Apache-2.0. Private until first working release |
 | 2026-11-01 | Config is YAML (`config.yml`), sources listed with explicit priority, local file source supported |
 | 2026-11-01 | Linux + nftables only. No iptables/ipset, no other OS |
+| 2026-11-01 | IPv6 handled exactly like IPv4: same list, same behaviour, no opt-in, no special cases |
 | 2026-11-01 | Built-in defaults for the nft names and priority; `fgw check --print-nft` prints the expected snippet. Services run as unprivileged user `fgw` with `CAP_NET_ADMIN`; restore unit is `PartOf=nftables.service` |

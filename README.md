@@ -14,6 +14,7 @@ analysis and decision log is in [docs/DESIGN.md](docs/DESIGN.md).
 
 - **Block list only, everything else allowed.** An empty list means no filtering.
   You cannot lock yourself out with an empty configuration.
+- **IPv4 and IPv6 alike.** Same list, same behaviour, no switch, no special cases.
 - **One set, one rule per address family.** The nftables ruleset defines the empty
   sets `geo_block` / `geo_block6`; `fgw` fills them. The drop rules live in your own
   nftables config and are never touched by the tool.
