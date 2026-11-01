@@ -174,6 +174,29 @@ Rules for the file:
 - **`fgw check` validates the schema** and reports unknown keys, so a typo like
   `prioroty:` fails loudly instead of being silently ignored.
 
+### Built-in defaults
+
+Everything except `countries` has a built-in default, so a minimal `config.yml` is
+just the country list. The defaults match `contrib/nftables/50-firegeowall.conf`
+exactly, so a fresh install of the three files (binary, contrib ruleset, config
+with countries) works without touching the `nft:` block.
+
+| Key | Default | Note |
+|---|---|---|
+| `interface` | interface of the default IPv4 route | detected at runtime; shown by `fgw status` |
+| `sources` | ipdeny (10), dbip (20) | as in the example above |
+| `min_ranges.ipv4` / `.ipv6` | 1000 / 100 | |
+| `nft.table` | `inet filter` | |
+| `nft.set_v4` / `nft.set_v6` | `geo_block` / `geo_block6` | |
+| `nft.chain` | `geo_prerouting` | only checked, never created |
+| `nft.chain_priority` | `-150` | only checked |
+| `state_dir` | `/var/lib/firegeowall` | matches `StateDirectory=` in the units |
+
+`fgw check --print-nft` prints the ruleset snippet the current configuration
+expects (names and priority substituted), so an operator with different names can
+paste it into their own `/etc/nftables.d/`. It prints, it never writes. This is a
+flag on `check`, not an eighth command.
+
 ## 6. Commands
 
 Seven commands. If an eighth is proposed it needs a very good reason.
@@ -237,23 +260,43 @@ reason.
 `fgw add`/`remove` do the same without the download step, using the cache. If a newly
 added country is not in the cache yet, it is fetched first.
 
-## 8. Boot behaviour
+## 8. Running as a service
 
-After a reboot the sets are empty until something fills them. Because this is a
-block list, empty means *unfiltered*, not *unreachable*. That is the intended failure
-direction. Still, the gap should be seconds, not until the next timer run:
+Nothing in firegeowall is a daemon. Two oneshot units and a timer do the work, all
+shipped in `contrib/systemd/`:
 
-- `fgw-restore.service`: `After=nftables.service`, `Before=network-online.target`,
-  runs `fgw apply --from-cache` (internal subcommand, not in the public seven). Needs
-  no network. Fills the sets from `/var/lib/firegeowall/zones/`.
-- `fgw-update.timer`: weekly, `OnCalendar=Sun 03:30`, `Persistent=true`,
-  `RandomizedDelaySec=30m`.
+| Unit | When | What |
+|---|---|---|
+| `fgw-restore.service` | after `nftables.service` at boot, and again whenever nftables is restarted or reloaded (`PartOf=nftables.service`) | `fgw apply --from-cache`: fill the sets from `/var/lib/firegeowall/zones/`, no network |
+| `fgw-update.timer` | `Sun 03:30`, randomised by up to 30 min, `Persistent=true` | starts `fgw-update.service` |
+| `fgw-update.service` | by the timer, or `systemctl start fgw-update` by hand | `fgw update`: fetch, validate, refill |
 
-If `nftables.service` is reloaded by hand (`flush ruleset`), the sets are recreated
-empty by the ruleset and `fgw-restore.service` does not re-run. `fgw check` detects
-"sets exist but are empty while the cache is not" and tells the operator to run
-`fgw update`. A `PartOf=nftables.service` dependency on the restore unit is an option
-to evaluate.
+Design notes:
+
+- **Boot gap.** After a reboot the sets are empty until `fgw-restore` runs. Because
+  this is a block list, empty means *unfiltered*, not *unreachable*: the intended
+  failure direction. The restore unit is ordered `Before=network-online.target`, so
+  the gap is a few hundred milliseconds, not until the next timer run.
+- **`flush ruleset` is handled.** `/etc/nftables.conf` begins with `flush ruleset`,
+  so a `systemctl reload nftables` recreates the sets empty. `PartOf=` makes the
+  restore unit re-run on every restart or reload of `nftables.service`. `fgw check`
+  additionally detects "sets exist but are empty while the cache is not".
+- **Unprivileged account.** Both services run as user `fgw` (created via
+  `sysusers.d`) with only `CAP_NET_ADMIN` as an ambient capability. nftables is
+  driven over netlink, which needs exactly that capability and nothing else. No
+  root process, no setuid binary.
+- **Hardening.** `ProtectSystem=strict`, `ProtectHome`, `PrivateTmp`,
+  `NoNewPrivileges`, `MemoryDenyWriteExecute`, `SystemCallFilter=@system-service`,
+  `RestrictAddressFamilies` (the restore unit does not even get `AF_INET`). The only
+  writable path is the state directory. `/etc/firegeowall` is read-only to the
+  services; only the interactive CLI run by an admin edits it.
+- **Interactive use.** `fgw add`, `fgw remove` and `fgw update` run by hand need
+  `CAP_NET_ADMIN` and write access to the config, so they run via `sudo`. `fgw
+  status`, `list`, `show` and `check` work as any user; `status` reads set sizes via
+  `nft -j list set`, which needs `CAP_NET_ADMIN` too, so it falls back to the cached
+  counts and says so when run unprivileged.
+- **`apply --from-cache`** is an internal subcommand used only by the restore unit.
+  It is not one of the seven public commands and is hidden from `--help`.
 
 ## 9. Safety summary
 
@@ -265,7 +308,7 @@ to evaluate.
 | Bad nftables syntax | `nft -c` before `nft -f` |
 | Host unreachable after reboot | Fail-open by design; restore from cache without network |
 | Tool rewrites firewall logic | It cannot: it only runs `flush set` / `add element` |
-| Running as root all the time | systemd units with `CapabilityBoundingSet=CAP_NET_ADMIN`, `ProtectSystem=strict`, `ReadWritePaths=/var/lib/firegeowall`, `NoNewPrivileges=yes` |
+| Running as root all the time | services run as user `fgw` with `AmbientCapabilities=CAP_NET_ADMIN` only; `ProtectSystem=strict`, `StateDirectory=`, `NoNewPrivileges`, syscall filter (see §8) |
 | Plain-text secrets | None exist. Sources are public files over HTTPS |
 
 ## 10. Data sources
@@ -304,9 +347,10 @@ host for enrichment; firegeowall does not touch it.
 /etc/firegeowall/config.yml
 /etc/firegeowall/custom/CC.zone               (optional local lists)
 /etc/nftables.d/50-firegeowall.conf        (from contrib/, operator-owned)
-/etc/systemd/system/fgw-update.service
+/etc/systemd/system/fgw-update.service     (from contrib/systemd/)
 /etc/systemd/system/fgw-update.timer
 /etc/systemd/system/fgw-restore.service
+/usr/lib/sysusers.d/fgw.conf                 (from contrib/systemd/sysusers-fgw.conf)
 /var/lib/firegeowall/zones/CC.zone, CC.zone6
 /var/lib/firegeowall/state.json
 ```
@@ -337,3 +381,4 @@ An Ansible role will ship these; the CLI edits only the `countries:` block of `c
 | 2026-11-01 | Seven commands, hard cap of ten |
 | 2026-11-01 | Name: firegeowall, binary `fgw`. Dual MIT / Apache-2.0. Private until first working release |
 | 2026-11-01 | Config is YAML (`config.yml`), sources listed with explicit priority, local file source supported |
+| 2026-11-01 | Built-in defaults for the nft names and priority; `fgw check --print-nft` prints the expected snippet. Services run as unprivileged user `fgw` with `CAP_NET_ADMIN`; restore unit is `PartOf=nftables.service` |

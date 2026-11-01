@@ -1,0 +1,42 @@
+# firegeowall: fill the (empty) nftables sets from the local cache right after
+# the ruleset is loaded. No network needed. Also re-runs whenever nftables.service
+# is restarted or reloaded (PartOf), because a `flush ruleset` empties the sets.
+[Unit]
+Description=firegeowall: restore country block sets from cache
+Documentation=https://github.com/TZERO78/firegeowall
+After=nftables.service
+Requires=nftables.service
+PartOf=nftables.service
+Before=network-online.target
+ConditionPathExists=/etc/firegeowall/config.yml
+ConditionPathExists=/var/lib/firegeowall/zones
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/fgw apply --from-cache
+User=fgw
+Group=fgw
+StateDirectory=firegeowall
+AmbientCapabilities=CAP_NET_ADMIN
+CapabilityBoundingSet=CAP_NET_ADMIN
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+PrivateNetwork=no
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_NETLINK AF_UNIX
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+ReadOnlyPaths=/etc/firegeowall
+
+[Install]
+WantedBy=multi-user.target
