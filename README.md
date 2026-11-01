@@ -44,8 +44,9 @@ fgw check         validate config and sets against nft -c
 fgw update        refresh zone files and refill the sets (run by the timer)
 ```
 
-Configuration lives in `/etc/firegeowall/config.toml`, one line per country, so
-Ansible and the CLI edit the same file.
+Configuration lives in `/etc/firegeowall/config.yml`: the country list, and the
+sources the range lists are fetched from, in priority order. Ansible and the CLI
+edit the same file.
 
 ## Non-goals
 

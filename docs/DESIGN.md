@@ -102,33 +102,77 @@ sets exist and warns if the chain is missing, but never creates either.
 
 ## 5. Configuration
 
-`/etc/firegeowall/config.toml`, owned by root, mode 0644:
+`/etc/firegeowall/config.yml`, owned by root, mode 0644. YAML, because everything
+else on the host (CrowdSec, Ansible, NetBird) is YAML too.
 
-```toml
-# Public interface the rule applies to. Only used by `fgw check` and `fgw status`.
-interface = "ens6"
+```yaml
+# Public interface the rule applies to. Used by `fgw check` and `fgw status`.
+interface: ens6
 
 # ISO 3166-1 alpha-2 codes. Empty list = nothing is blocked.
-countries = ["CN", "RU", "KP", "IR", "BY", "VN"]
+countries:
+  - CN
+  - RU
+  - KP
+  - IR
+  - BY
+  - VN
 
-# Where zone files come from. First that works wins.
-sources = ["ipdeny", "dbip"]
+# Where the per-country range lists come from.
+# Tried in order of priority (lowest number first). The first source that
+# delivers a valid file for a country wins; the others are only fallbacks.
+# {cc} is replaced by the lower-case country code.
+sources:
+  - name: ipdeny
+    priority: 10
+    ipv4: https://www.ipdeny.com/ipblocks/data/aggregated/{cc}-aggregated.zone
+    ipv6: https://www.ipdeny.com/ipv6/ipaddresses/aggregated/{cc}-aggregated.zone
+    format: zone            # one CIDR per line
+
+  - name: dbip
+    priority: 20
+    url: https://download.db-ip.com/free/dbip-country-lite-{yyyy}-{mm}.csv.gz
+    format: dbip-csv        # start,end,cc rows; converted to CIDRs locally
+
+  - name: local
+    priority: 90
+    path: /etc/firegeowall/custom/{cc}.zone
+    format: zone            # hand-maintained ranges, e.g. a hosting provider
 
 # Refuse to apply a set smaller than this many ranges (per family).
 # Protects against truncated downloads and empty lists.
-min_ranges_v4 = 1000
-min_ranges_v6 = 100
+min_ranges:
+  ipv4: 1000
+  ipv6: 100
 
 # Names of the nftables objects. Change only if your ruleset differs.
-[nft]
-table   = "inet filter"
-set_v4  = "geo_block"
-set_v6  = "geo_block6"
+nft:
+  table: inet filter
+  set_v4: geo_block
+  set_v6: geo_block6
+  chain: geo_prerouting
+  chain_priority: -150      # fgw check warns if the live chain differs
+
+# Cache and state. Normally left alone.
+state_dir: /var/lib/firegeowall
 ```
 
-`fgw add` and `fgw remove` rewrite the `countries` line and nothing else, preserving
-comments. The same file is deployed by Ansible, so CLI and configuration management
-never disagree.
+Rules for the file:
+
+- **Sources are ordered by `priority`.** Lower number = tried first. For each
+  country, the first source that returns a file passing validation is used, and
+  `fgw status` shows which one. A source with `path:` instead of a URL is a local
+  file, which makes hand-maintained lists and air-gapped hosts possible.
+- **Missing source for a country is not an error** as long as at least one source
+  delivers. Only when all sources fail for a country does `fgw update` abort.
+- **`fgw add` / `fgw remove` edit only the `countries:` block**, line by line, and
+  leave every other line and comment untouched. The tool never re-serialises the
+  whole file, so operator comments survive. If the block cannot be found, the
+  command refuses rather than guess.
+- **Ansible deploys the same file.** CLI and configuration management never
+  disagree because there is only one file.
+- **`fgw check` validates the schema** and reports unknown keys, so a typo like
+  `prioroty:` fails loudly instead of being silently ignored.
 
 ## 6. Commands
 
@@ -168,8 +212,10 @@ Health     OK
 
 `fgw update` does, in order:
 
-1. For each configured country, download `CC.zone` and `CC.zone6` from the first
-   working source over HTTPS. Verify each line parses as a CIDR of the right family.
+1. For each configured country, walk the `sources` list by priority and fetch the
+   IPv4 and IPv6 lists from the first source that delivers over HTTPS (or from a local
+   path). Verify each line parses as a CIDR of the right family. Record which source
+   was used.
 2. Write the files to `/var/lib/firegeowall/zones/` atomically (temp file + rename).
    Keep the previous version until the new one is complete.
 3. Build one nftables script:
@@ -236,8 +282,9 @@ host for enrichment; firegeowall does not touch it.
 ## 11. Implementation notes (Rust)
 
 - Edition 2024, MSRV = current stable at first release.
-- Crates: `clap` (derive), `serde` + `toml` (config, preserving comments via
-  `toml_edit`), `ipnet` (CIDR parsing and aggregation), `ureq` with `rustls` (no
+- Crates: `clap` (derive), `serde` + a maintained YAML crate (`serde_yaml_ng` or
+  `serde-saphyr`; the original `serde_yaml` is archived) for reading the config,
+  plain line editing for the `countries:` block so comments survive, `ipnet` (CIDR parsing and aggregation), `ureq` with `rustls` (no
   OpenSSL dependency, static build), `serde_json`, `anyhow`, `tracing` +
   `tracing-journald`.
 - nftables is driven by spawning `nft -f -` with the script on stdin. No libnftables
@@ -254,7 +301,8 @@ host for enrichment; firegeowall does not touch it.
 
 ```
 /usr/local/sbin/fgw
-/etc/firegeowall/config.toml
+/etc/firegeowall/config.yml
+/etc/firegeowall/custom/CC.zone               (optional local lists)
 /etc/nftables.d/50-firegeowall.conf        (from contrib/, operator-owned)
 /etc/systemd/system/fgw-update.service
 /etc/systemd/system/fgw-update.timer
@@ -263,7 +311,7 @@ host for enrichment; firegeowall does not touch it.
 /var/lib/firegeowall/state.json
 ```
 
-An Ansible role will ship these; the CLI edits only `config.toml`.
+An Ansible role will ship these; the CLI edits only the `countries:` block of `config.yml`.
 
 ## 13. Open questions
 
@@ -288,3 +336,4 @@ An Ansible role will ship these; the CLI edits only `config.toml`.
 | 2026-11-01 | Block-list only, allow-all default. Allow mode dropped as a non-goal |
 | 2026-11-01 | Seven commands, hard cap of ten |
 | 2026-11-01 | Name: firegeowall, binary `fgw`. Dual MIT / Apache-2.0. Private until first working release |
+| 2026-11-01 | Config is YAML (`config.yml`), sources listed with explicit priority, local file source supported |
