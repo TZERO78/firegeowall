@@ -2,6 +2,25 @@
 
 Status: design phase, 2026-11-01. Nothing here is implemented yet.
 
+## 0. Principles
+
+Five sentences that decide every design question below. When in doubt, pick the
+option that satisfies more of them.
+
+1. **Simple.** One list, one switch-free mode, seven commands, one YAML file. If a
+   feature needs a paragraph to explain, it is not in version 1.
+2. **Fast to use.** `fgw add CN` takes effect before the prompt returns. Output fits
+   on one screen. Shell completions ship with the binary.
+3. **Seamless with nftables.** The tool speaks nftables' own language: it only fills
+   sets the operator declared, in one atomic transaction, and never invents rules.
+   `nft list ruleset -t` still shows the whole firewall on one page.
+4. **Dynamic enough.** Changes are live immediately, sets survive reboots and
+   reloads, lists refresh weekly. No daemon is needed for that; systemd already
+   provides the clock and the ordering.
+5. **Light on RAM.** No resident process. The binary runs, fills the sets, exits.
+   Zone files are streamed line by line, never loaded whole. The kernel holds the
+   ranges in interval sets, which is the most compact place for them.
+
 ## 1. Why this exists
 
 The author ran a home-made Bash GeoIP blocker on a hardened Debian VPS for about a
@@ -138,7 +157,7 @@ sources:
     ipv6: https://www.ipdeny.com/ipv6/ipaddresses/aggregated/{cc}-aggregated.zone
     format: zone            # one CIDR per line
 
-  - name: dbip
+  - name: dbip               # optional fallback, not in the defaults
     priority: 20
     url: https://download.db-ip.com/free/dbip-country-lite-{yyyy}-{mm}.csv.gz
     format: dbip-csv        # start,end,cc rows; converted to CIDRs locally
@@ -193,7 +212,7 @@ with countries) works without touching the `nft:` block.
 | Key | Default | Note |
 |---|---|---|
 | `interface` | interface of the default IPv4 route | detected at runtime; shown by `fgw status` |
-| `sources` | ipdeny (10), dbip (20) | as in the example above |
+| `sources` | ipdeny only | db-ip and local sources are opt-in; one source keeps the default path simple |
 | `min_ranges.ipv4` / `.ipv6` | 1000 / 100 | |
 | `nft.table` | `inet filter` | |
 | `nft.set_v4` / `nft.set_v6` | `geo_block` / `geo_block6` | |
@@ -347,6 +366,26 @@ host for enrichment; firegeowall does not touch it.
   one file plus two unit files and one config.
 - Development happens on a workstation. The VPS gets the binary only. No toolchain
   on the server.
+
+### Memory budget
+
+| Where | What | Rough size |
+|---|---|---|
+| Kernel, nftables interval set | one element per aggregated range | about 50–100 bytes each; 50,000 ranges ≈ 3–5 MB |
+| Disk cache `/var/lib/firegeowall/zones/` | plain text, one CIDR per line | 1–2 MB for six countries, both families |
+| `fgw` while running | streamed parsing, one country in memory at a time | a few MB peak, 0 when idle |
+| `fgw` binary | static musl build | < 5 MB on disk |
+
+Rules that keep it that way:
+
+- Zone files are read with a buffered line reader and written to the nft script as
+  they are validated. No `Vec` of the whole world.
+- Aggregation (merging adjacent ranges) is done per country, on sorted input, in a
+  single pass. `auto-merge` on the set lets the kernel merge across countries.
+- The db-ip whole-world CSV is streamed through a gzip decoder and filtered to the
+  configured countries on the fly. It is never unpacked to disk.
+- Nothing is cached in RAM between runs because there is no process between runs.
+
 - Tests: unit tests for CIDR validation and script generation; an integration test
   that runs against a throwaway `nft` table in a network namespace (`ip netns`),
   skipped when not root.
@@ -372,11 +411,14 @@ An Ansible role will ship these; the CLI edits only the `countries:` block of `c
 
 - Final country list for the first deployment. Proposed: CN, RU, KP, IR, BY, VN.
   Must not include the country of any legitimate remote peer.
-- Should `fgw update` also refresh countries that were removed, to keep `fgw show`
-  useful for them? Probably yes, cache everything ever requested, cap at 30 days.
-- Overlap with CrowdSec: a CrowdSec-banned IP inside a blocked country is dropped
-  twice. Harmless, but `fgw status` could note how many CrowdSec decisions are
-  already covered. Nice-to-have, not v1.
+
+Resolved by the principles (section 0):
+
+- Removed countries are dropped from the cache on the next `fgw update`. Keeping
+  stale files for `fgw show` would be a second lifecycle to explain. If you want to
+  look at a country, add it or fetch the zone file yourself.
+- No CrowdSec overlap statistics in `fgw status`. Two tools, two outputs.
+- IPv6: identical to IPv4, see goal 7.
 
 ## 14. Decision log
 
@@ -392,4 +434,5 @@ An Ansible role will ship these; the CLI edits only the `countries:` block of `c
 | 2026-11-01 | Config is YAML (`config.yml`), sources listed with explicit priority, local file source supported |
 | 2026-11-01 | Linux + nftables only. No iptables/ipset, no other OS |
 | 2026-11-01 | IPv6 handled exactly like IPv4: same list, same behaviour, no opt-in, no special cases |
+| 2026-11-01 | Principles fixed: simple, fast to use, seamless with nft, dynamic enough, light on RAM. Default source ipdeny only; removed countries leave the cache; no CrowdSec statistics |
 | 2026-11-01 | Built-in defaults for the nft names and priority; `fgw check --print-nft` prints the expected snippet. Services run as unprivileged user `fgw` with `CAP_NET_ADMIN`; restore unit is `PartOf=nftables.service` |
