@@ -4,7 +4,7 @@ Country-based blocking for nftables, done the simple way.
 
 `fgw` is a small Rust command-line tool that keeps an nftables set filled with the
 IP ranges of the countries you want to keep out. nftables does the filtering; `fgw`
-only manages the set contents. No daemon, no web UI, no rule generation.
+owns one chain and the sets in it, and touches nothing else. No daemon, no web UI.
 
 Principles: simple, fast to use, seamless with nftables, dynamic enough, light on
 RAM. No resident process; the kernel holds the ranges, the binary runs and exits.
@@ -18,9 +18,9 @@ analysis and decision log is in [docs/DESIGN.md](docs/DESIGN.md).
 - **Block list only, everything else allowed.** An empty list means no filtering.
   You cannot lock yourself out with an empty configuration.
 - **IPv4 and IPv6 alike.** Same list, same behaviour, no switch, no special cases.
-- **One set, one rule per address family.** The nftables ruleset defines the empty
-  sets `geo_block` / `geo_block6`; `fgw` fills them. The drop rules live in your own
-  nftables config and are never touched by the tool.
+- **One set and one rule per country.** `nft list ruleset -t` shows
+  `ip saddr @geo_ru counter drop comment "RU"` with its own counter. Your hook chain
+  jumps into `geo_block`, the one chain `fgw` owns and rebuilds atomically.
 - **Whole public interface, all ports.** The rule is meant to sit in a prerouting
   chain, so it catches traffic to the host and traffic forwarded to containers alike.
   Loopback and mesh/VPN interfaces are unaffected.
@@ -57,7 +57,7 @@ edit the same file.
 - Linux with nftables only. No iptables, no ipset, no other operating systems
 - No allow-list mode (default-deny would lock you out; may come later as a second set)
 - No web dashboard
-- No rule generation, no replacement for your firewall config
+- Nothing outside its own chain and sets; your hook chain and policy stay yours
 
 ## License
 
