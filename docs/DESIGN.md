@@ -394,7 +394,7 @@ Rules that keep it that way:
 
 ```
 /usr/local/sbin/fgw
-/etc/firegeowall/config.yml
+/etc/firegeowall/config.yml                 (from contrib/config.yml)
 /etc/firegeowall/custom/CC.zone               (optional local lists)
 /etc/nftables.d/50-firegeowall.conf        (from contrib/, operator-owned)
 /etc/systemd/system/fgw-update.service     (from contrib/systemd/)
@@ -409,15 +409,14 @@ An Ansible role will ship these; the CLI edits only the `countries:` block of `c
 
 ## 13. Open questions
 
-- Final country list for the first deployment. Proposed: CN, RU, KP, IR, BY, VN.
-  Must not include the country of any legitimate remote peer.
+None at the moment. Everything below was decided on 2026-11-01; see the decision log.
 
-Resolved by the principles (section 0):
-
-- Removed countries are dropped from the cache on the next `fgw update`. Keeping
-  stale files for `fgw show` would be a second lifecycle to explain. If you want to
-  look at a country, add it or fetch the zone file yourself.
-- No CrowdSec overlap statistics in `fgw status`. Two tools, two outputs.
+- Initial country list: CN, RU, KP, IR, BY, VN. This is the list the first
+  deployment on the author's VPS starts with and the one `contrib/config.yml`
+  ships. Operators change it with `fgw add` / `fgw remove`. The country of any
+  legitimate remote peer must never be on it.
+- Removed countries are dropped from the cache on the next `fgw update`.
+- No CrowdSec overlap statistics in `fgw status`.
 - IPv6: identical to IPv4, see goal 7.
 
 ## 14. Decision log
@@ -434,5 +433,6 @@ Resolved by the principles (section 0):
 | 2026-11-01 | Config is YAML (`config.yml`), sources listed with explicit priority, local file source supported |
 | 2026-11-01 | Linux + nftables only. No iptables/ipset, no other OS |
 | 2026-11-01 | IPv6 handled exactly like IPv4: same list, same behaviour, no opt-in, no special cases |
+| 2026-11-01 | Initial country list fixed: CN, RU, KP, IR, BY, VN; shipped in `contrib/config.yml` |
 | 2026-11-01 | Principles fixed: simple, fast to use, seamless with nft, dynamic enough, light on RAM. Default source ipdeny only; removed countries leave the cache; no CrowdSec statistics |
 | 2026-11-01 | Built-in defaults for the nft names and priority; `fgw check --print-nft` prints the expected snippet. Services run as unprivileged user `fgw` with `CAP_NET_ADMIN`; restore unit is `PartOf=nftables.service` |
