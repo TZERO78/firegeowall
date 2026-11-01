@@ -39,9 +39,14 @@ Alternatives were considered and rejected for this use case:
 3. Never lock the operator out, never make the host unreachable on error.
 4. Be boring: a CLI, a config file, a timer. No daemon, no web UI, no database.
 5. Be reviewable: fewer than ~1,500 lines of Rust, seven commands.
+6. Target exactly one platform: Linux with nftables (kernel 5.x+, `nft` 1.0+).
 
 ## 3. Non-goals
 
+- Anything but Linux with nftables. No iptables, no ipset, no nft-compat shims,
+  no BSD/pf, no macOS, no Windows. One target keeps the code small and the
+  transaction semantics exact. A host that still runs iptables migrates to nftables
+  first; that is out of scope here.
 - Allow-list mode (default-deny). It would lock you out on an empty or stale set.
   Could be added later as a second set without redesign.
 - Generating or editing nftables rules. The operator owns the ruleset.
@@ -332,7 +337,9 @@ host for enrichment; firegeowall does not touch it.
   `tracing-journald`.
 - nftables is driven by spawning `nft -f -` with the script on stdin. No libnftables
   binding, no unsafe code. If the JSON API is ever wanted, `nft -j` is a drop-in.
-- Target: `x86_64-unknown-linux-musl`, fully static binary, < 5 MB. Deployment is
+- Target: `x86_64-unknown-linux-musl` (and `aarch64-unknown-linux-musl`), fully
+  static binary, < 5 MB. Linux only; the crate uses `#[cfg(target_os = "linux")]`
+  and refuses to build elsewhere rather than carrying dead abstractions. Deployment is
   one file plus two unit files and one config.
 - Development happens on a workstation. The VPS gets the binary only. No toolchain
   on the server.
@@ -381,4 +388,5 @@ An Ansible role will ship these; the CLI edits only the `countries:` block of `c
 | 2026-11-01 | Seven commands, hard cap of ten |
 | 2026-11-01 | Name: firegeowall, binary `fgw`. Dual MIT / Apache-2.0. Private until first working release |
 | 2026-11-01 | Config is YAML (`config.yml`), sources listed with explicit priority, local file source supported |
+| 2026-11-01 | Linux + nftables only. No iptables/ipset, no other OS |
 | 2026-11-01 | Built-in defaults for the nft names and priority; `fgw check --print-nft` prints the expected snippet. Services run as unprivileged user `fgw` with `CAP_NET_ADMIN`; restore unit is `PartOf=nftables.service` |

@@ -50,6 +50,7 @@ edit the same file.
 
 ## Non-goals
 
+- Linux with nftables only. No iptables, no ipset, no other operating systems
 - No allow-list mode (default-deny would lock you out; may come later as a second set)
 - No web dashboard
 - No rule generation, no replacement for your firewall config
