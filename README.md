@@ -6,7 +6,9 @@ Country-based blocking for nftables, done the simple way.
 IP ranges of the countries you want to keep out. nftables does the filtering; `fgw`
 only manages the set contents. No daemon, no web UI, no rule generation.
 
-**Status: design phase.** No code yet. The design below is what will be built.
+**Status: design phase.** No code yet. The summary below is what will be built;
+the full design with rationale, nftables integration, config format, safety
+analysis and decision log is in [docs/DESIGN.md](docs/DESIGN.md).
 
 ## Design
 
