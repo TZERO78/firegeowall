@@ -90,7 +90,11 @@ if dpkg -s firegeowall >/dev/null 2>&1; then
     OLD=$(dpkg-query -W -f='${Version}' firegeowall)
     DEBIAN_FRONTEND=noninteractive apt-get install -y --only-upgrade firegeowall
     NEW=$(dpkg-query -W -f='${Version}' firegeowall)
-    say "firegeowall $OLD -> $NEW (configuration and enabled units unchanged)"
+    if [ "$OLD" = "$NEW" ]; then
+        say "firegeowall $NEW is already the newest version"
+    else
+        say "firegeowall $OLD -> $NEW (configuration and enabled units unchanged)"
+    fi
 else
     DEBIAN_FRONTEND=noninteractive apt-get install -y firegeowall
     say "installed $(dpkg-query -W -f='${Version}' firegeowall). Nothing is enabled yet."
