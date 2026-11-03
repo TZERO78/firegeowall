@@ -210,8 +210,10 @@ fn cmd_add(cli: &Cli, input: &[String], force: bool) -> Result<ExitCode> {
     let new: Vec<String> = req.iter().filter(|c| !cur.contains(c)).cloned().collect();
     let already: Vec<String> = req.iter().filter(|c| cur.contains(c)).cloned().collect();
 
-    let mut f = None;
     if !new.is_empty() {
+        // The config does not list the new countries yet; a world-wide source
+        // like db-ip must still keep them.
+        let mut f = Some(Fetcher::with_extra(&new));
         // Fetch new countries first: the self-check needs their ranges.
         let mut fresh = Vec::new();
         for cc in &new {

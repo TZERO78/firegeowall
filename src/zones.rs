@@ -31,9 +31,11 @@ pub struct Zone {
     pub v6: Vec<Ipv6Net>,
 }
 
-/// Shortest prefix accepted. Nothing a single country owns is bigger; anything
-/// shorter is a broken list (or a /0) and would block a large part of the world.
-const MIN_PREFIX_V4: u8 = 8;
+/// Shortest prefix accepted; anything shorter is a broken list (or a /0) and
+/// would block a large part of the world. Real lists go well below /8: the
+/// aggregated US list has 16.0.0.0/6 and 6.0.0.0/7, the largest IPv6 block is
+/// a /17. /4 is a sixteenth of the IPv4 space.
+const MIN_PREFIX_V4: u8 = 4;
 const MIN_PREFIX_V6: u8 = 12;
 
 impl Zone {
@@ -213,6 +215,12 @@ mod tests {
 
         let mut z = Zone::default();
         assert!(z.read_into("0.0.0.0/0\n".as_bytes(), None, "t").is_err());
+        assert!(z.read_into("0.0.0.0/3\n".as_bytes(), None, "t").is_err());
+        // real ranges from the aggregated US list
+        assert!(
+            z.read_into("16.0.0.0/6\n6.0.0.0/7\n".as_bytes(), None, "t")
+                .is_ok()
+        );
         assert!(
             z.read_into("1.2.3.0/24\n".as_bytes(), Some(Family::V6), "t")
                 .is_err()

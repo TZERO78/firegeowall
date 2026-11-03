@@ -2,11 +2,14 @@
 # the ruleset is loaded. No network needed. Also re-runs whenever nftables.service
 # is restarted (PartOf) or reloaded (ReloadPropagatedFrom + ExecReload), because
 # the `flush ruleset` in /etc/nftables.conf empties the sets.
+# Requisite, not Requires: if nftables.service is not active, this unit fails
+# instead of starting it, because starting it runs `flush ruleset` and wipes
+# rules other tools (Docker, ufw, ...) loaded.
 [Unit]
 Description=firegeowall: restore country block sets from cache
 Documentation=https://github.com/TZERO78/firegeowall
 After=nftables.service
-Requires=nftables.service
+Requisite=nftables.service
 PartOf=nftables.service
 ReloadPropagatedFrom=nftables.service
 Before=network-online.target

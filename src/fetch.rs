@@ -15,6 +15,9 @@ const MAX_BODY: u64 = 64 * 1024 * 1024;
 
 pub struct Fetcher {
     agent: ureq::Agent,
+    /// Countries to keep besides the configured ones: `fgw add` fetches before
+    /// the config lists them.
+    extra: Vec<String>,
     /// db-ip covers the whole world in one file: downloaded once per run.
     dbip: HashMap<String, std::result::Result<HashMap<String, Zone>, String>>,
 }
@@ -29,7 +32,16 @@ impl Fetcher {
             .into();
         Fetcher {
             agent,
+            extra: Vec::new(),
             dbip: HashMap::new(),
+        }
+    }
+
+    /// A fetcher that also keeps `extra` when filtering a world-wide source.
+    pub fn with_extra(extra: &[String]) -> Fetcher {
+        Fetcher {
+            extra: extra.to_vec(),
+            ..Fetcher::new()
         }
     }
 
@@ -101,9 +113,8 @@ impl Fetcher {
             Format::DbipCsv => {
                 let url = src.url.clone().unwrap_or_default();
                 if !self.dbip.contains_key(&url) {
-                    let res = self
-                        .load_dbip(&url, cfg.countries())
-                        .map_err(|e| format!("{e:#}"));
+                    let wanted = dbip_wanted(cfg.countries(), &self.extra, cc);
+                    let res = self.load_dbip(&url, &wanted).map_err(|e| format!("{e:#}"));
                     self.dbip.insert(url.clone(), res);
                 }
                 match &self.dbip[&url] {
@@ -129,37 +140,53 @@ impl Fetcher {
                 .replace("{yyyy}", &format!("{y:04}"))
                 .replace("{mm}", &format!("{m:02}"));
             let Some(r) = self.get(&url)? else { continue };
-            let mut out: HashMap<String, Zone> = HashMap::new();
-            let rd = BufReader::new(GzDecoder::new(r));
-            for (n, line) in rd.lines().enumerate() {
-                let line = line.with_context(|| format!("{url}: read error"))?;
-                let mut it = line.split(',');
-                let (Some(a), Some(b), Some(c)) = (it.next(), it.next(), it.next()) else {
-                    bail!("{url}, line {}: expected start,end,country", n + 1);
-                };
-                let c = c.trim().trim_matches('"');
-                if !wanted.iter().any(|w| w == c) {
-                    continue;
-                }
-                let (a, b): (IpAddr, IpAddr) = (
-                    a.trim_matches('"')
-                        .parse()
-                        .with_context(|| format!("{url}, line {}", n + 1))?,
-                    b.trim_matches('"')
-                        .parse()
-                        .with_context(|| format!("{url}, line {}", n + 1))?,
-                );
-                let z = out.entry(c.to_string()).or_default();
-                match (a, b) {
-                    (IpAddr::V4(a), IpAddr::V4(b)) => z.v4.extend(ipnet::Ipv4Subnets::new(a, b, 0)),
-                    (IpAddr::V6(a), IpAddr::V6(b)) => z.v6.extend(ipnet::Ipv6Subnets::new(a, b, 0)),
-                    _ => bail!("{url}, line {}: mixed address families", n + 1),
-                }
-            }
-            return Ok(out);
+            return parse_dbip(BufReader::new(GzDecoder::new(r)), wanted, &url);
         }
         bail!("no db-ip file for this or last month")
     }
+}
+
+/// The countries to keep from a db-ip file: the configured ones, the extra
+/// ones and the one being asked for.
+fn dbip_wanted(configured: &[String], extra: &[String], cc: &str) -> Vec<String> {
+    let mut w = configured.to_vec();
+    for c in extra.iter().map(String::as_str).chain([cc]) {
+        if !w.iter().any(|x| x == c) {
+            w.push(c.to_string());
+        }
+    }
+    w
+}
+
+/// Parse db-ip `start,end,country` rows, keeping only `wanted` countries.
+fn parse_dbip(rd: impl BufRead, wanted: &[String], url: &str) -> Result<HashMap<String, Zone>> {
+    let mut out: HashMap<String, Zone> = HashMap::new();
+    for (n, line) in rd.lines().enumerate() {
+        let line = line.with_context(|| format!("{url}: read error"))?;
+        let mut it = line.split(',');
+        let (Some(a), Some(b), Some(c)) = (it.next(), it.next(), it.next()) else {
+            bail!("{url}, line {}: expected start,end,country", n + 1);
+        };
+        let c = c.trim().trim_matches('"');
+        if !wanted.iter().any(|w| w == c) {
+            continue;
+        }
+        let (a, b): (IpAddr, IpAddr) = (
+            a.trim_matches('"')
+                .parse()
+                .with_context(|| format!("{url}, line {}", n + 1))?,
+            b.trim_matches('"')
+                .parse()
+                .with_context(|| format!("{url}, line {}", n + 1))?,
+        );
+        let z = out.entry(c.to_string()).or_default();
+        match (a, b) {
+            (IpAddr::V4(a), IpAddr::V4(b)) => z.v4.extend(ipnet::Ipv4Subnets::new(a, b, 0)),
+            (IpAddr::V6(a), IpAddr::V6(b)) => z.v6.extend(ipnet::Ipv6Subnets::new(a, b, 0)),
+            _ => bail!("{url}, line {}: mixed address families", n + 1),
+        }
+    }
+    Ok(out)
 }
 
 /// The guard rails from the config: minimum size and maximum shrink against
@@ -207,5 +234,18 @@ mod tests {
         assert!(validate(&cfg, small.clone(), Some(&big)).is_err());
         assert!(validate(&cfg, big.clone(), Some(&small)).is_ok());
         assert!(validate(&cfg, Zone::default(), None).is_err()); // ipv4 min 1
+    }
+
+    #[test]
+    fn dbip_keeps_countries_not_yet_configured() {
+        let cfg = Config::parse("countries: [CN]\n").unwrap();
+        let wanted = dbip_wanted(cfg.countries(), &["RU".into()], "KP");
+        assert_eq!(wanted, ["CN", "RU", "KP"]);
+        let csv = "1.0.1.0,1.0.1.255,CN\n5.5.0.0,5.5.255.255,RU\n175.45.176.0,175.45.179.255,KP\n\
+                   8.8.8.0,8.8.8.255,US\n2001:db8::,2001:db8::ffff,KP\n";
+        let m = parse_dbip(csv.as_bytes(), &wanted, "t").unwrap();
+        assert_eq!(m["KP"].v4[0].to_string(), "175.45.176.0/22");
+        assert_eq!(m["KP"].v6.len(), 1);
+        assert!(m.contains_key("RU") && !m.contains_key("US"));
     }
 }

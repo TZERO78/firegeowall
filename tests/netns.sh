@@ -108,6 +108,12 @@ $F status | grep -q "WARN" && ok "status shows degraded update" || fail "degrade
 cp $T/cn.bak $T/custom/cn.zone; $F update >/dev/null && ok "good update clears it" || fail "update"
 $F check | grep -q WARN && fail "warning not cleared" || ok "no warnings left"
 
+# real lists go below /8: the aggregated US list has 16.0.0.0/6 and 6.0.0.0/7
+printf '16.0.0.0/6\n6.0.0.0/7\n' > $T/custom/us.zone
+$F add US >/dev/null && ok "large real ranges (US /6, /7) accepted" || fail "add US"
+nft list set inet filter geo_us | grep -q '16.0.0.0/6' && ok "/6 in the set" || fail "geo_us"
+$F remove US >/dev/null
+
 # empty list = nothing blocked
 $F remove CN RU >/dev/null
 grep -q "^countries: \[\]$" $T/config.yml && ok "empty list written as []" || fail "empty list"

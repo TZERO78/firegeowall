@@ -5,7 +5,9 @@ Description=firegeowall: refresh country block sets
 Documentation=https://github.com/TZERO78/firegeowall
 After=network-online.target nftables.service
 Wants=network-online.target
-Requires=nftables.service
+# No Requires=nftables.service: pulling it in from the weekly timer would start
+# it when inactive, and its `flush ruleset` would wipe the whole ruleset.
+# fgw checks for the table itself and leaves everything alone if it is missing.
 ConditionPathExists=/etc/firegeowall/config.yml
 
 [Service]

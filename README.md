@@ -36,7 +36,7 @@ is in [docs/DESIGN.md](docs/DESIGN.md).
 - **Data source:** public per-country zone files (ipdeny.com / db-ip), refreshed
   weekly by a systemd timer.
 
-## Commands (seven, no more)
+## Commands
 
 ```
 fgw add CN        add a country to the block list and apply immediately
@@ -47,6 +47,9 @@ fgw show CN       print the ranges of a country
 fgw check         validate config and sets against nft -c
 fgw update        refresh zone files and refill the sets (run by the timer)
 ```
+
+`fgw-restore.service` also uses the hidden `fgw apply --from-cache` to refill the
+sets after boot or an nftables reload, without network.
 
 Configuration lives in `/etc/firegeowall/config.yml`: the country list, and the
 sources the range lists are fetched from, in priority order. Ansible and the CLI
@@ -92,11 +95,16 @@ release build above); the result lands in `target/debian/`.
 ```
 install -m 0755 target/release/fgw /usr/sbin/fgw
 install -d /etc/firegeowall && install -m 0644 contrib/config.yml /etc/firegeowall/
+install -d /etc/nftables.d
 install -m 0644 contrib/nftables/50-firegeowall.conf /etc/nftables.d/   # adjust the interface
+# Debian's /etc/nftables.conf does not read /etc/nftables.d. Without this line the
+# hook chain is gone after the next nftables reload and nothing is filtered.
+grep -q '^include "/etc/nftables.d/\*.conf"' /etc/nftables.conf \
+    || echo 'include "/etc/nftables.d/*.conf"' >> /etc/nftables.conf
 install -m 0644 contrib/systemd/fgw-* /etc/systemd/system/
 install -m 0644 contrib/systemd/sysusers-fgw.conf /etc/sysusers.d/fgw.conf
 systemd-sysusers && systemctl daemon-reload
-nft -f /etc/nftables.d/50-firegeowall.conf                             # or reload nftables
+systemctl enable --now nftables      # fgw-restore needs it active; reload if it already is
 systemctl start fgw-update && systemctl enable --now fgw-restore fgw-update.timer
 fgw check && fgw status
 ```

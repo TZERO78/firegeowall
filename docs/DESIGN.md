@@ -146,7 +146,9 @@ Design notes:
 - **Reading the ruleset:** `nft list ruleset -t` prints rules without set contents.
 
 The hook chain is shipped as `contrib/nftables/50-firegeowall.conf` for operators
-who use an `include "/etc/nftables.d/*.conf"` layout. It also declares an empty
+who use an `include "/etc/nftables.d/*.conf"` layout. Debian's stock
+`/etc/nftables.conf` has no such include; without it, the next reload drops the
+hook chain and fgw filters nothing (the README install adds the line). It also declares an empty
 `chain geo_block` so the `jump` is valid before fgw has ever run. `fgw check`
 verifies that the hook chain exists and jumps to `geo_block`, and warns if the
 priority or interface differ from the configuration.
@@ -491,3 +493,4 @@ None at the moment. Everything below was decided on 2026-11-01; see the decision
 | 2026-11-03 | v0.1.0 implemented. Deviations from the draft: `min_ranges` default 1/0 instead of 1000/100 (BY has 105 IPv4 ranges, KP one and no IPv6) plus `max_shrink_percent: 50`; IPv6 404 = no IPv6 ranges, no set and no rule for that family; prefixes shorter than /8 or /12 rejected; reload of nftables propagated via `ReloadPropagatedFrom=` (PartOf covers only stop/restart); no `tracing` crate, stderr goes to the journal; ISO 3166 code check so `UK` fails; config lock via `flock` on `<state_dir>/lock` |
 | 2026-11-03 | Builds in a rootless Podman container (`contrib/build/Containerfile`), integration test `tests/netns.sh` drops real packets from a peer namespace |
 | 2026-11-03 | v0.1.1: Debian package via `cargo-deb`. Binary moves to `/usr/sbin/fgw`. The package enables nothing (the hook chain is operator-owned), creates `config.yml` once from an empty template instead of shipping a conffile (no dpkg prompts when `fgw add` edits it), keeps the user `fgw` on purge. Goal: a signed APT repository so `apt upgrade` delivers new releases |
+| 2026-11-03 | Units no longer pull in `nftables.service` (`Requisite=` for restore, nothing for update): starting it from fgw would `flush ruleset`. `fgw add` keeps new countries when filtering db-ip. Shortest accepted IPv4 prefix lowered from /8 to /4 (the US list has a /6). README install adds the `/etc/nftables.d` include |
