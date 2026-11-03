@@ -31,6 +31,9 @@ sleep 1
 nft add table inet filter
 sed 's/"ens6"/"veth0"/' /src/contrib/nftables/50-firegeowall.conf > $T/50.conf
 nft -f $T/50.conf
+# the ruleset file nftables.service would load; fgw check looks for the hook chain in it
+printf 'flush ruleset\ntable inet filter {\n}\n' > $T/nftables.conf
+export FGW_NFT_CONF=$T/nftables.conf
 
 # --- config with a local source only (no network needed)
 mkdir -p $T/custom
@@ -69,6 +72,8 @@ reach 1.0.1.5 && fail "blocked source still reaches host" || ok "CN source dropp
 reach 10.99.0.2 && ok "unlisted source still reaches host" || fail "unlisted source blocked"
 nft list chain inet filter geo_block | grep 'comment "CN"' | grep -q 'packets [1-9]' && ok "CN counter counts" || fail "counter"
 
+$F check | grep -q 'FAIL  persistent' && ok "check fails when the hook chain is not in the ruleset file" || { $F check; fail "persistent"; }
+echo "include \"$T/*.conf\"" >> $T/nftables.conf
 $F check >/dev/null && ok "check passes" || { $F check; fail "check"; }
 $F status | grep -q "Health OK" && ok "status health OK" || { $F status; fail "status"; }
 $F list | grep -q "^CN" && ok "list" || fail "list"
@@ -113,6 +118,12 @@ printf '16.0.0.0/6\n6.0.0.0/7\n' > $T/custom/us.zone
 $F add US >/dev/null && ok "large real ranges (US /6, /7) accepted" || fail "add US"
 nft list set inet filter geo_us | grep -q '16.0.0.0/6' && ok "/6 in the set" || fail "geo_us"
 $F remove US >/dev/null
+
+# a lock file created by root belongs to the state dir's owner (the timer's user)
+rm -f $T/state/lock; chown -R nobody $T/state
+$F apply --from-cache >/dev/null
+[ "$(stat -c %U $T/state/lock)" = nobody ] && ok "lock file owned by state dir owner" || { ls -l $T/state; fail "lock owner"; }
+chown -R root $T/state
 
 # empty list = nothing blocked
 $F remove CN RU >/dev/null

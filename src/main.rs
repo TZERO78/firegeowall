@@ -673,6 +673,42 @@ fn run_checks(path: &Path) -> (Option<Config>, Option<nft::Live>, Vec<Check>) {
         }
     }
 
+    // The hook chain must be in the ruleset file, or the next nftables reload
+    // drops it and the sets filter nothing until someone notices.
+    match nft::conf_path() {
+        None => ck(
+            &mut v,
+            Level::Warn,
+            "persistent",
+            "no nftables ruleset file found; cannot tell if the hook chain survives a reload",
+        ),
+        Some(conf) => match nft::chain_persisted(&conf, &n.hook_chain) {
+            Ok(Some(f)) => ck(
+                &mut v,
+                Level::Ok,
+                "persistent",
+                format!("{} defined in {}", n.hook_chain, f.display()),
+            ),
+            Ok(None) => ck(
+                &mut v,
+                Level::Fail,
+                "persistent",
+                format!(
+                    "{} is not in {} or its includes: the next nftables reload drops it \
+                     and nothing is filtered. Add: include \"/etc/nftables.d/*.conf\"",
+                    n.hook_chain,
+                    conf.display()
+                ),
+            ),
+            Err(e) => ck(
+                &mut v,
+                Level::Warn,
+                "persistent",
+                format!("cannot read {} or an include: {e}", conf.display()),
+            ),
+        },
+    }
+
     let mut expected_sets = Vec::new();
     for cc in cfg.countries() {
         let z = match zones::read_cache(&cfg.state_dir, cc) {

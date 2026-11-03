@@ -71,6 +71,8 @@ pub fn lock(state_dir: &Path) -> Result<fs::File> {
         .write(true)
         .open(&p)
         .with_context(|| format!("cannot open {}", p.display()))?;
+    // Created by `sudo fgw add`, it must still be openable by the timer's user.
+    match_owner(&p, state_dir);
     match f.try_lock() {
         Ok(()) => Ok(f),
         Err(fs::TryLockError::WouldBlock) => {

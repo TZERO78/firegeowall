@@ -5,6 +5,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use serde_json::Value;
 use std::fmt::Write as _;
 use std::io::Write;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use crate::config::{Config, NftNames};
@@ -14,6 +15,89 @@ const CHUNK: usize = 1000;
 
 fn nft_bin() -> String {
     std::env::var("FGW_NFT").unwrap_or_else(|_| "nft".into())
+}
+
+/// Where the distribution's nftables service loads its ruleset from.
+/// `FGW_NFT_CONF` overrides it (tests).
+pub fn conf_path() -> Option<PathBuf> {
+    if let Ok(p) = std::env::var("FGW_NFT_CONF") {
+        return Some(p.into());
+    }
+    [
+        "/etc/nftables.conf",           // Debian, Ubuntu, Arch
+        "/etc/sysconfig/nftables.conf", // Fedora, RHEL
+        "/etc/nftables.nft",            // Alpine
+    ]
+    .into_iter()
+    .map(PathBuf::from)
+    .find(|p| p.exists())
+}
+
+/// The file, among `conf` and everything it includes, that defines `chain`.
+/// `None` means the chain only lives in the kernel: the next `flush ruleset`
+/// of an nftables reload drops it for good.
+pub fn chain_persisted(conf: &Path, chain: &str) -> std::io::Result<Option<PathBuf>> {
+    let mut todo = vec![conf.to_path_buf()];
+    let mut seen = Vec::new();
+    while let Some(f) = todo.pop() {
+        if seen.contains(&f) || seen.len() > 256 {
+            continue;
+        }
+        let text = std::fs::read_to_string(&f)?;
+        seen.push(f.clone());
+        for line in text.lines() {
+            let l = line.split('#').next().unwrap_or("").trim();
+            if let Some(rest) = l.strip_prefix("chain ")
+                && rest.split(|c: char| c.is_whitespace() || c == '{').next() == Some(chain)
+            {
+                return Ok(Some(f));
+            }
+            if let Some(inc) = l.strip_prefix("include ") {
+                let inc = inc.trim().trim_end_matches(';').trim_matches('"');
+                let p = Path::new(inc);
+                let p = if p.is_absolute() {
+                    p.to_path_buf()
+                } else {
+                    f.parent().unwrap_or(Path::new("/etc")).join(p)
+                };
+                todo.extend(glob(&p));
+            }
+        }
+    }
+    Ok(None)
+}
+
+/// Expand `*` and `?` in the last path component, sorted like nft does.
+fn glob(p: &Path) -> Vec<PathBuf> {
+    let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    if !name.contains(['*', '?']) {
+        return vec![p.to_path_buf()];
+    }
+    let dir = p.parent().unwrap_or(Path::new("/"));
+    let mut v: Vec<PathBuf> = std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| {
+            e.file_name()
+                .to_str()
+                .is_some_and(|n| !n.starts_with('.') && wildcard(name.as_bytes(), n.as_bytes()))
+        })
+        .map(|e| e.path())
+        .filter(|p| p.is_file())
+        .collect();
+    v.sort();
+    v
+}
+
+fn wildcard(pat: &[u8], s: &[u8]) -> bool {
+    match (pat.first(), s.first()) {
+        (None, None) => true,
+        (Some(b'*'), _) => wildcard(&pat[1..], s) || (!s.is_empty() && wildcard(pat, &s[1..])),
+        (Some(b'?'), Some(_)) => wildcard(&pat[1..], &s[1..]),
+        (Some(a), Some(b)) if a == b => wildcard(&pat[1..], &s[1..]),
+        _ => false,
+    }
 }
 
 /// Run a script with `nft -f -` (or `nft -c -f -` for a dry run).
@@ -338,5 +422,43 @@ mod tests {
         assert!(s.find("add element").unwrap() < f && f < s.find("add rule").unwrap());
         // deletions come last, after the rules that used them are gone
         assert!(s.rfind("add rule").unwrap() < s.find("delete set").unwrap());
+    }
+
+    #[test]
+    fn finds_chain_through_includes() {
+        let d = std::env::temp_dir().join(format!("fgw-conf-{}", std::process::id()));
+        std::fs::create_dir_all(d.join("nftables.d")).unwrap();
+        let conf = d.join("nftables.conf");
+        let snippet = d.join("nftables.d/50-firegeowall.conf");
+        std::fs::write(
+            &snippet,
+            "table inet filter {\n  chain geo_prerouting {\n  }\n}\n",
+        )
+        .unwrap();
+        std::fs::write(d.join("nftables.d/README"), "chain geo_prerouting\n").unwrap();
+
+        // stock Debian file: no include, the chain is not persisted
+        std::fs::write(
+            &conf,
+            "flush ruleset\ntable inet filter {\n  chain input {\n  }\n}\n",
+        )
+        .unwrap();
+        assert_eq!(chain_persisted(&conf, "geo_prerouting").unwrap(), None);
+
+        std::fs::write(
+            &conf,
+            "flush ruleset\n# include \"x\"\ninclude \"nftables.d/*.conf\"\n",
+        )
+        .unwrap();
+        assert_eq!(
+            chain_persisted(&conf, "geo_prerouting").unwrap(),
+            Some(snippet)
+        );
+        assert_eq!(chain_persisted(&conf, "geo_pre").unwrap(), None);
+        assert!(chain_persisted(&d.join("missing"), "x").is_err());
+        std::fs::remove_dir_all(&d).unwrap();
+
+        assert!(wildcard(b"*.conf", b"50-firegeowall.conf"));
+        assert!(!wildcard(b"*.conf", b"README"));
     }
 }
