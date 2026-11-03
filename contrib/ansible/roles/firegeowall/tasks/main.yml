@@ -1,0 +1,153 @@
+- name: Check the input
+  ansible.builtin.assert:
+    that:
+      - fgw_install in ['apt', 'deb']
+      - fgw_install != 'deb' or fgw_deb_src | length > 0
+      - fgw_interface is match('^[A-Za-z0-9._@-]{1,15}$')
+      - fgw_countries is sequence and fgw_countries is not string
+    fail_msg: "fgw_install apt|deb (deb needs fgw_deb_src), fgw_interface an interface name, fgw_countries a list"
+
+- name: Is the APT repository configured
+  ansible.builtin.stat:
+    path: /etc/apt/sources.list.d/firegeowall.sources
+  register: fgw_sources_file
+
+- name: Repository key matches the pinned fingerprint
+  ansible.builtin.command: gpg --show-keys --with-colons {{ fgw_repo_key_src | quote }}
+  delegate_to: localhost
+  become: false
+  register: fgw_key
+  changed_when: false
+  check_mode: false
+  failed_when: >-
+    fgw_key.rc != 0 or
+    ('fpr:::::::::' ~ (fgw_repo_key_fpr | replace(' ', '')) ~ ':') not in fgw_key.stdout
+  when: fgw_install == 'apt'
+
+- name: Repository key
+  ansible.builtin.copy:
+    src: "{{ fgw_repo_key_src }}"
+    dest: /etc/apt/keyrings/firegeowall.gpg
+    mode: "0644" # apt verifies as the unprivileged user _apt
+  when: fgw_install == 'apt'
+
+- name: Repository
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/firegeowall.sources
+    mode: "0644"
+    content: |
+      # firegeowall APT repository, managed by Ansible (role firegeowall)
+      Types: deb
+      URIs: {{ fgw_repo_url }}
+      Suites: stable
+      Components: main
+      Architectures: amd64
+      Signed-By: /etc/apt/keyrings/firegeowall.gpg
+  register: fgw_repo
+  when: fgw_install == 'apt'
+
+- name: Install firegeowall from the repository
+  ansible.builtin.apt:
+    name: firegeowall
+    state: present
+    # fresh cloud images ship without package lists; refresh when the repo is new
+    update_cache: "{{ fgw_repo is changed or not fgw_sources_file.stat.exists }}"
+  register: fgw_pkg_apt
+  when: fgw_install == 'apt'
+
+- name: Package directory
+  ansible.builtin.file:
+    path: /var/cache/firegeowall
+    state: directory
+    mode: "0755"
+  when: fgw_install == 'deb'
+
+- name: Copy the package
+  ansible.builtin.copy:
+    src: "{{ fgw_deb_src }}"
+    dest: /var/cache/firegeowall/{{ fgw_deb_src | basename }}
+    mode: "0644"
+  register: fgw_deb_copy
+  when: fgw_install == 'deb'
+
+- name: Install firegeowall from the .deb
+  ansible.builtin.apt:
+    deb: /var/cache/firegeowall/{{ fgw_deb_src | basename }}
+    update_cache: "{{ fgw_deb_copy is changed }}" # nftables comes from Debian
+  register: fgw_pkg_deb
+  when: fgw_install == 'deb'
+
+- name: Configuration
+  ansible.builtin.template:
+    src: config.yml.j2
+    dest: /etc/firegeowall/config.yml
+    mode: "0644"
+    validate: /usr/sbin/fgw --config %s list
+  notify: Refresh fgw sets
+
+- name: Hook chain snippet as fgw expects it
+  ansible.builtin.command: /usr/sbin/fgw check --print-nft
+  register: fgw_snippet
+  changed_when: false
+  check_mode: false
+
+- name: nftables.d directory
+  ansible.builtin.file:
+    path: /etc/nftables.d
+    state: directory
+    mode: "0755"
+
+- name: Hook chain
+  ansible.builtin.copy:
+    content: "{{ fgw_snippet.stdout }}\n"
+    dest: /etc/nftables.d/50-firegeowall.conf
+    mode: "0644"
+    validate: nft -c -f %s
+  notify: Reload nftables
+
+- name: Load /etc/nftables.d from the ruleset file
+  ansible.builtin.lineinfile:
+    path: /etc/nftables.conf
+    line: 'include "/etc/nftables.d/*.conf"'
+    insertafter: EOF
+  when: fgw_nft_include
+  notify: Reload nftables
+
+- name: nftables enabled and running
+  ansible.builtin.systemd_service:
+    name: nftables
+    enabled: true
+    state: started
+
+# `enabled: true` leaves an enabled unit alone, so WantedBy= targets that a
+# package upgrade adds (fgw-restore is wanted by nftables.service) need a reenable.
+- name: Re-create the unit links after a package change
+  ansible.builtin.command: systemctl reenable fgw-restore.service fgw-update.timer
+  when: fgw_pkg_apt is changed or fgw_pkg_deb is changed
+
+- name: Apply nftables and set changes now
+  ansible.builtin.meta: flush_handlers
+
+- name: First fill of the sets
+  ansible.builtin.command: systemctl start fgw-update.service
+  args:
+    creates: /var/lib/firegeowall/state.json
+
+- name: Restore unit and weekly timer enabled
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+  loop:
+    - fgw-restore.service
+    - fgw-update.timer
+
+- name: fgw check
+  ansible.builtin.command: /usr/sbin/fgw check
+  register: fgw_check
+  changed_when: false
+  check_mode: false
+
+- name: fgw check result
+  ansible.builtin.debug:
+    var: fgw_check.stdout_lines

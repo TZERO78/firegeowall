@@ -45,6 +45,7 @@ assets = [
     ["contrib/deb/config.yml", "usr/share/firegeowall/config.yml", "644"],
     ["contrib/deb/README.Debian", "usr/share/doc/firegeowall/README.Debian", "644"],
     ["README.md", "usr/share/doc/firegeowall/README.md", "644"],
+    ["CHANGELOG.md", "usr/share/doc/firegeowall/CHANGELOG.md", "644"],
     ["docs/DESIGN.md", "usr/share/doc/firegeowall/DESIGN.md", "644"],
     ["contrib/config.yml", "usr/share/doc/firegeowall/examples/config.yml", "644"],
     ["contrib/nftables/50-firegeowall.conf", "usr/share/doc/firegeowall/examples/50-firegeowall.conf", "644"],

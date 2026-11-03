@@ -5,6 +5,10 @@ locally in the build container; CI only assembles and signs the APT repository.
 
 ## 1. Version and checks
 
+In `CHANGELOG.md`, rename `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, add
+a new empty `## [Unreleased]` above it and update the links at the bottom.
+That section becomes the release notes (`NOTES.md` below).
+
 ```sh
 # bump version in Cargo.toml, then:
 podman build -t fgw-build contrib/build
@@ -34,6 +38,8 @@ sha256sum firegeowall_$V-1_amd64.deb > firegeowall_$V-1_amd64.deb.sha256
 ## 3. Publish
 
 ```sh
+# release notes = the version's section of CHANGELOG.md, without its heading
+awk -v v="## [$V]" 'index($0,v)==1{f=1;next} /^## \[/{f=0} f' CHANGELOG.md > NOTES.md
 gh release create v$V --verify-tag --title "fgw v$V" --notes-file NOTES.md \
     firegeowall_$V-1_amd64.deb firegeowall_$V-1_amd64.deb.sha256 \
     $N.tar.gz $N.tar.gz.sha256

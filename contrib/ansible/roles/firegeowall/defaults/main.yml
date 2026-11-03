@@ -1,0 +1,21 @@
+# Where the package comes from:
+#   apt  the signed APT repository (default; updates arrive with apt upgrade)
+#   deb  a .deb on the controller, path in fgw_deb_src (e.g. an unreleased build)
+fgw_install: apt
+fgw_deb_src: ""
+fgw_repo_url: https://tzero78.github.io/firegeowall
+# Repository key shipped in this repository (contrib/apt/), checked against the
+# fingerprint below before it is installed.
+fgw_repo_key_src: "{{ role_path }}/../../../apt/firegeowall-archive-keyring.gpg"
+fgw_repo_key_fpr: CF417369 2FFEBB3F 8BFA9BD8 41E5BAAD 4FCBA55B
+
+# ISO 3166-1 alpha-2 codes to block. Empty list = nothing is blocked.
+# Ansible owns this list: `fgw add` / `fgw remove` changes are reverted on the next run.
+fgw_countries: [CN, RU, KP, IR, BY, VN]
+# Public interface; defaults to the one with the IPv4 default route.
+fgw_interface: "{{ ansible_facts.default_ipv4.interface }}"
+# Optional: list of sources (see docs/DESIGN.md section 5). Empty = built-in ipdeny.
+fgw_sources: []
+
+# Add `include "/etc/nftables.d/*.conf"` to /etc/nftables.conf if missing.
+fgw_nft_include: true

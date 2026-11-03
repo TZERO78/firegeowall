@@ -1,0 +1,11 @@
+# Reloading nftables flushes the ruleset; fgw-restore refills the sets via
+# ReloadPropagatedFrom, after the reload has finished.
+- name: Reload nftables
+  ansible.builtin.systemd_service:
+    name: nftables
+    state: reloaded
+
+# Countries changed: fetch and refill. Runs after "Reload nftables"
+# (handlers run in the order they are defined here), so the hook chain exists.
+- name: Refresh fgw sets
+  ansible.builtin.command: systemctl start fgw-update.service

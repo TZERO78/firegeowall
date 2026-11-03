@@ -1,0 +1,9 @@
+galaxy_info:
+  role_name: firegeowall
+  description: Country blocking with nftables sets via fgw
+  license: MIT OR Apache-2.0
+  min_ansible_version: "2.15"
+  platforms:
+    - name: Debian
+      versions: [bookworm, trixie]
+dependencies: []

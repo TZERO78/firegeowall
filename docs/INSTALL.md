@@ -8,6 +8,7 @@ the nftables hook chain belongs to you, not to a package script.
 - [2. APT repository by hand](#2-apt-repository-by-hand)
 - [3. Single .deb file](#3-single-deb-file)
 - [4. From source](#4-from-source)
+- [5. Ansible](#5-ansible)
 - [First setup](#first-setup)
 - [Updates](#updates)
 - [Uninstall](#uninstall)
@@ -107,6 +108,28 @@ sudo systemd-sysusers && sudo systemctl daemon-reload
 ```
 
 Then continue with the first setup.
+
+## 5. Ansible
+
+The role in [`contrib/ansible/roles/firegeowall`](../contrib/ansible/roles/firegeowall/)
+does the install and the whole first setup below in one run: APT repository
+(key checked against the fingerprint above), package, config, hook chain from
+`fgw check --print-nft`, the `/etc/nftables.d` include, first fill, units, and a
+final `fgw check`. A second run changes nothing.
+
+```yaml
+- hosts: firewalls
+  become: true
+  roles:
+    - role: firegeowall
+      fgw_countries: [CN, RU, KP]   # Ansible owns the list
+      # fgw_interface: ens6         # default: interface of the default route
+      # fgw_install: deb            # a local package instead of the repository
+      # fgw_deb_src: target/debian/firegeowall_0.1.1-1_amd64.deb
+```
+
+Ansible owns the country list: `fgw add` / `fgw remove` on the host are
+reverted by the next run. Change `fgw_countries` instead.
 
 ## First setup
 

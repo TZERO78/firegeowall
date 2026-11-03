@@ -1,0 +1,19 @@
+# {{ ansible_managed }}
+# firegeowall configuration, see docs/DESIGN.md section 5.
+# The country list is owned by Ansible (fgw_countries); fgw add/remove changes
+# are reverted on the next run.
+
+interface: {{ fgw_interface }}
+
+{% if fgw_countries | length == 0 %}
+countries: []
+{% else %}
+countries:
+{% for cc in fgw_countries %}
+  - {{ cc | upper }}
+{% endfor %}
+{% endif %}
+{% if fgw_sources | length > 0 %}
+
+{{ {'sources': fgw_sources} | to_nice_yaml(indent=2) }}
+{%- endif %}

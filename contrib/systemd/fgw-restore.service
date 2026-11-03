@@ -1,15 +1,17 @@
 # firegeowall: fill the (empty) nftables sets from the local cache right after
 # the ruleset is loaded. No network needed. Also re-runs whenever nftables.service
 # is restarted (PartOf) or reloaded (ReloadPropagatedFrom + ExecReload), because
-# the `flush ruleset` in /etc/nftables.conf empties the sets.
-# Requisite, not Requires: if nftables.service is not active, this unit fails
-# instead of starting it, because starting it runs `flush ruleset` and wipes
-# rules other tools (Docker, ufw, ...) loaded.
+# the `flush ruleset` in /etc/nftables.conf empties the sets. PartOf does not
+# cover a plain start after a stop; WantedBy=nftables.service does.
+# Neither Requires= nor Requisite= on nftables.service: Requires= starts it when
+# inactive, and its `flush ruleset` wipes rules other tools (Docker, ufw, ...)
+# loaded. Requisite= together with WantedBy= makes the two units pull each other
+# in, so starting *any* service started a stopped nftables again. Without the
+# table, fgw fails and changes nothing, so After= is all the ordering needed.
 [Unit]
 Description=firegeowall: restore country block sets from cache
 Documentation=https://github.com/TZERO78/firegeowall
 After=nftables.service
-Requisite=nftables.service
 PartOf=nftables.service
 ReloadPropagatedFrom=nftables.service
 Before=network-online.target
@@ -46,4 +48,4 @@ SystemCallFilter=~@privileged @resources
 ReadOnlyPaths=/etc/firegeowall
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=multi-user.target nftables.service

@@ -37,10 +37,11 @@ the United Kingdom is `GB`).
 
 | | |
 |---|---|
-| [docs/INSTALL.md](docs/INSTALL.md) | Install script, APT repository, .deb, from source, first setup, updates, uninstall |
+| [docs/INSTALL.md](docs/INSTALL.md) | Install script, APT repository, .deb, from source, Ansible, first setup, updates, uninstall |
 | [docs/USAGE.md](docs/USAGE.md) | Commands, country codes, configuration, timers, troubleshooting |
 | [docs/DESIGN.md](docs/DESIGN.md) | Why it exists, nftables integration, full config reference, safety analysis, decision log |
 | [docs/RELEASING.md](docs/RELEASING.md) | Building releases, the APT repository workflow, the signing key |
+| [CHANGELOG.md](CHANGELOG.md) | What changed in each release |
 
 ## Design
 
