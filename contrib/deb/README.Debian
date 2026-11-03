@@ -28,6 +28,8 @@ fgw owns, and that hook chain belongs to you.
      systemctl enable --now fgw-restore.service fgw-update.timer
      fgw check && fgw status
 
+Full documentation: https://github.com/TZERO78/firegeowall/tree/main/docs
+
 Removing the package stops and disables the units. The sets and rules stay in
 the running ruleset until nftables is reloaded or restarted. Purging also
 deletes /etc/firegeowall and /var/lib/firegeowall; the user `fgw` is kept.

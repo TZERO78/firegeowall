@@ -9,9 +9,38 @@ owns one chain and the sets in it, and touches nothing else. No daemon, no web U
 Principles: simple, fast to use, seamless with nftables, dynamic enough, light on
 RAM. No resident process; the kernel holds the ranges, the binary runs and exits.
 
-**Status: v0.1.1, first working version.** The full design with
-rationale, nftables integration, config format, safety analysis and decision log
-is in [docs/DESIGN.md](docs/DESIGN.md).
+**Status: v0.1.1.** Running in production on a Debian 13 server. Packages for
+Debian/Ubuntu (amd64) from a signed APT repository.
+
+## Quick start
+
+```sh
+curl -fsSLO https://raw.githubusercontent.com/TZERO78/firegeowall/main/scripts/install.sh
+less install.sh && sudo sh install.sh      # adds the APT repository, installs firegeowall
+```
+
+The package enables nothing by itself. Three steps follow: add the hook chain to
+nftables, choose countries, enable the units. All in
+[docs/INSTALL.md, First setup](docs/INSTALL.md#first-setup).
+
+```sh
+sudo fgw add CN RU                                   # block, applied at once
+sudo systemctl enable --now fgw-restore.service fgw-update.timer
+sudo fgw status                                      # drops per country
+sudo apt update && sudo apt upgrade                  # later: new releases
+```
+
+Country codes are ISO 3166-1 alpha-2 ([list](https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2);
+the United Kingdom is `GB`).
+
+## Documentation
+
+| | |
+|---|---|
+| [docs/INSTALL.md](docs/INSTALL.md) | Install script, APT repository, .deb, from source, first setup, updates, uninstall |
+| [docs/USAGE.md](docs/USAGE.md) | Commands, country codes, configuration, timers, troubleshooting |
+| [docs/DESIGN.md](docs/DESIGN.md) | Why it exists, nftables integration, full config reference, safety analysis, decision log |
+| [docs/RELEASING.md](docs/RELEASING.md) | Building releases, the APT repository workflow, the signing key |
 
 ## Design
 
@@ -39,21 +68,16 @@ is in [docs/DESIGN.md](docs/DESIGN.md).
 ## Commands
 
 ```
-fgw add CN        add a country to the block list and apply immediately
-fgw remove CN     remove a country and apply immediately
+fgw add CN        add countries to the block list and apply immediately
+fgw remove CN     remove countries and apply immediately
 fgw list          show configured countries
-fgw status        mode, countries, interface, last update, drop counters
-fgw show CN       print the ranges of a country
-fgw check         validate config and sets against nft -c
-fgw update        refresh zone files and refill the sets (run by the timer)
+fgw status        interface, health, last update, ranges and drops per country
+fgw show CN       print the cached ranges of a country
+fgw check         validate config, hook chain, persistence, sets and cache
+fgw update        refresh the lists and refill the sets (run by the weekly timer)
 ```
 
-`fgw-restore.service` also uses the hidden `fgw apply --from-cache` to refill the
-sets after boot or an nftables reload, without network.
-
-Configuration lives in `/etc/firegeowall/config.yml`: the country list, and the
-sources the range lists are fetched from, in priority order. Ansible and the CLI
-edit the same file.
+Details and examples: [docs/USAGE.md](docs/USAGE.md).
 
 ## Build and test
 
@@ -65,71 +89,11 @@ podman run --rm -v .:/src:Z fgw-build cargo build --release      # target/releas
 podman run --rm -v .:/src:Z fgw-build cargo test
 podman run --rm --cap-add NET_ADMIN --cap-add NET_RAW --cap-add SYS_ADMIN \
     -v .:/src:Z fgw-build sh -c 'cargo build && sh tests/netns.sh'  # real nftables, real packets
+podman run --rm -v .:/src:Z fgw-build cargo deb --no-build --no-strip   # target/debian/*.deb
 ```
 
 The integration test runs in the container's own network namespace and never
 touches the host firewall.
-
-## Install
-
-### APT repository (Debian / Ubuntu, amd64)
-
-Signed repository on GitHub Pages; new releases arrive with `apt upgrade`.
-
-```
-sudo install -d -m 0755 /etc/apt/keyrings
-curl -fsSL https://tzero78.github.io/firegeowall/firegeowall-archive-keyring.gpg -o /tmp/fgw.gpg
-gpg --show-keys /tmp/fgw.gpg    # must show CF41 7369 2FFE BB3F 8BFA  9BD8 41E5 BAAD 4FCB A55B
-sudo install -m 0644 /tmp/fgw.gpg /etc/apt/keyrings/firegeowall.gpg   # 0644: apt verifies as user _apt
-sudo curl -fsSL https://tzero78.github.io/firegeowall/firegeowall.sources \
-    -o /etc/apt/sources.list.d/firegeowall.sources
-sudo apt update && sudo apt install firegeowall
-```
-
-The key is also in this repository (`contrib/apt/`). It signs the repository
-index only; the packages themselves are built from the tagged source in the
-bundled container and checked against the `.sha256` attached to each release
-before they enter the repository (`.github/workflows/apt-repo.yml`).
-
-### Debian / Ubuntu package
-
-Each release has a `firegeowall_<version>_amd64.deb` attached (static binary, runs
-on any amd64 Debian or Ubuntu with systemd and nftables):
-
-```
-apt install ./firegeowall_0.1.1-1_amd64.deb
-```
-
-The package installs `/usr/sbin/fgw`, the systemd units, the service user `fgw` and
-an empty `/etc/firegeowall/config.yml`, and **enables nothing**: you first add the
-hook chain to nftables. The steps are in `/usr/share/doc/firegeowall/README.Debian`.
-Upgrades keep your config and your enabled/disabled units; `apt purge` removes
-config, cache and state.
-
-Build the package yourself: `cargo deb --no-build` in the build container (after the
-release build above); the result lands in `target/debian/`.
-
-### By hand
-
-```
-install -m 0755 target/release/fgw /usr/sbin/fgw
-install -d /etc/firegeowall && install -m 0644 contrib/config.yml /etc/firegeowall/
-install -d /etc/nftables.d
-install -m 0644 contrib/nftables/50-firegeowall.conf /etc/nftables.d/   # adjust the interface
-# Debian's /etc/nftables.conf does not read /etc/nftables.d. Without this line the
-# hook chain is gone after the next nftables reload and nothing is filtered.
-grep -q '^include "/etc/nftables.d/\*.conf"' /etc/nftables.conf \
-    || echo 'include "/etc/nftables.d/*.conf"' >> /etc/nftables.conf
-install -m 0644 contrib/systemd/fgw-* /etc/systemd/system/
-install -m 0644 contrib/systemd/sysusers-fgw.conf /etc/sysusers.d/fgw.conf
-systemd-sysusers && systemctl daemon-reload
-systemctl enable --now nftables      # fgw-restore needs it active; reload if it already is
-systemctl start fgw-update && systemctl enable --now fgw-restore fgw-update.timer
-fgw check && fgw status
-```
-
-The units call `/usr/sbin/fgw`. Note that `contrib/config.yml` ships an example
-list (CN RU KP IR BY VN); the Debian package starts with an empty one.
 
 ## Non-goals
 
