@@ -1,0 +1,13 @@
+#!/bin/sh
+# firegeowall prerm: on removal stop and disable the units. Upgrades keep the
+# operator's enable/disable state untouched.
+set -e
+
+if [ "$1" = "remove" ]; then
+    if [ -d /run/systemd/system ]; then
+        systemctl stop fgw-update.timer fgw-update.service fgw-restore.service >/dev/null 2>&1 || true
+    fi
+    systemctl disable fgw-update.timer fgw-restore.service >/dev/null 2>&1 || true
+fi
+
+exit 0

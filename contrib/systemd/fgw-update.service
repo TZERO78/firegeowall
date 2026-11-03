@@ -10,7 +10,7 @@ ConditionPathExists=/etc/firegeowall/config.yml
 
 [Service]
 Type=oneshot
-ExecStart=/usr/local/sbin/fgw update
+ExecStart=/usr/sbin/fgw update
 User=fgw
 Group=fgw
 StateDirectory=firegeowall

@@ -1,0 +1,22 @@
+#!/bin/sh
+# firegeowall postinst: create the service user and a default config.
+# Nothing is enabled or started here: the operator first has to add the hook
+# chain to nftables (see /usr/share/doc/firegeowall/README.Debian).
+set -e
+
+if [ "$1" = "configure" ]; then
+    systemd-sysusers /usr/lib/sysusers.d/fgw.conf
+    install -d -m 0755 /etc/firegeowall
+    if [ ! -e /etc/firegeowall/config.yml ]; then
+        install -m 0644 /usr/share/firegeowall/config.yml /etc/firegeowall/config.yml
+    fi
+    if [ -d /run/systemd/system ]; then
+        systemctl daemon-reload >/dev/null || true
+    fi
+    if [ -z "$2" ]; then
+        echo "firegeowall: installed, nothing enabled yet. Next steps:"
+        echo "  /usr/share/doc/firegeowall/README.Debian"
+    fi
+fi
+
+exit 0

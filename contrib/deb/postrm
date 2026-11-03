@@ -1,0 +1,16 @@
+#!/bin/sh
+# firegeowall postrm: purge removes config, cache and state. The user `fgw` is
+# kept (Debian convention: UIDs are not recycled). Sets and the geo_block chain
+# stay in the running ruleset until the next nftables reload/restart.
+set -e
+
+if [ "$1" = "purge" ]; then
+    rm -rf /etc/firegeowall /var/lib/firegeowall
+fi
+if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
+    if [ -d /run/systemd/system ]; then
+        systemctl daemon-reload >/dev/null || true
+    fi
+fi
+
+exit 0

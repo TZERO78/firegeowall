@@ -1,0 +1,33 @@
+firegeowall for Debian
+======================
+
+The package installs the binary, the systemd units and the service user `fgw`,
+but enables nothing. The filter only works once nftables jumps into the chain
+fgw owns, and that hook chain belongs to you.
+
+1. Add the hook chain to your nftables configuration. Example (adjust the
+   interface name):
+
+     /usr/share/doc/firegeowall/examples/50-firegeowall.conf
+
+   or print the snippet that matches your config.yml:
+
+     fgw check --print-nft
+
+   Debian's default /etc/nftables.conf does not include /etc/nftables.d/;
+   add an `include "/etc/nftables.d/*.conf"` line if you use that directory.
+   Then reload nftables.
+
+2. Choose countries (config: /etc/firegeowall/config.yml, empty by default):
+
+     fgw add CN RU
+
+3. Fetch the lists once, then enable boot restore and the weekly refresh:
+
+     systemctl start fgw-update.service
+     systemctl enable --now fgw-restore.service fgw-update.timer
+     fgw check && fgw status
+
+Removing the package stops and disables the units. The sets and rules stay in
+the running ruleset until nftables is reloaded or restarted. Purging also
+deletes /etc/firegeowall and /var/lib/firegeowall; the user `fgw` is kept.

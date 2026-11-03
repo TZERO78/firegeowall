@@ -436,20 +436,27 @@ Rules that keep it that way:
 
 ## 12. Deployment layout
 
+Debian package (`cargo deb`, see README):
+
 ```
-/usr/local/sbin/fgw
-/etc/firegeowall/config.yml                 (from contrib/config.yml)
+/usr/sbin/fgw
+/usr/lib/systemd/system/fgw-update.service
+/usr/lib/systemd/system/fgw-update.timer
+/usr/lib/systemd/system/fgw-restore.service
+/usr/lib/sysusers.d/fgw.conf
+/usr/share/firegeowall/config.yml             (template, copied once if absent)
+/usr/share/doc/firegeowall/examples/          (config.yml, 50-firegeowall.conf)
+/etc/firegeowall/config.yml                   (created by postinst, never overwritten)
 /etc/firegeowall/custom/CC.zone               (optional local lists)
-/etc/nftables.d/50-firegeowall.conf        (from contrib/, operator-owned)
-/etc/systemd/system/fgw-update.service     (from contrib/systemd/)
-/etc/systemd/system/fgw-update.timer
-/etc/systemd/system/fgw-restore.service
-/etc/sysusers.d/fgw.conf                     (from contrib/systemd/sysusers-fgw.conf)
+/etc/nftables.d/50-firegeowall.conf           (operator-owned, not shipped)
 /var/lib/firegeowall/zones/CC.zone, CC.zone6
 /var/lib/firegeowall/state.json
 ```
 
-An Ansible role will ship these; the CLI edits only the `countries:` block of `config.yml`.
+A manual install puts the units in `/etc/systemd/system/` and the sysusers file in
+`/etc/sysusers.d/`; the binary path `/usr/sbin/fgw` is the same.
+
+The CLI edits only the `countries:` block of `config.yml`.
 
 ## 13. Open questions
 
@@ -483,3 +490,4 @@ None at the moment. Everything below was decided on 2026-11-01; see the decision
 | 2026-11-01 | Built-in defaults for the nft names and priority; `fgw check --print-nft` prints the expected snippet. Services run as unprivileged user `fgw` with `CAP_NET_ADMIN`; restore unit is `PartOf=nftables.service` |
 | 2026-11-03 | v0.1.0 implemented. Deviations from the draft: `min_ranges` default 1/0 instead of 1000/100 (BY has 105 IPv4 ranges, KP one and no IPv6) plus `max_shrink_percent: 50`; IPv6 404 = no IPv6 ranges, no set and no rule for that family; prefixes shorter than /8 or /12 rejected; reload of nftables propagated via `ReloadPropagatedFrom=` (PartOf covers only stop/restart); no `tracing` crate, stderr goes to the journal; ISO 3166 code check so `UK` fails; config lock via `flock` on `<state_dir>/lock` |
 | 2026-11-03 | Builds in a rootless Podman container (`contrib/build/Containerfile`), integration test `tests/netns.sh` drops real packets from a peer namespace |
+| 2026-11-03 | v0.1.1: Debian package via `cargo-deb`. Binary moves to `/usr/sbin/fgw`. The package enables nothing (the hook chain is operator-owned), creates `config.yml` once from an empty template instead of shipping a conffile (no dpkg prompts when `fgw add` edits it), keeps the user `fgw` on purge. Goal: a signed APT repository so `apt upgrade` delivers new releases |

@@ -9,7 +9,7 @@ owns one chain and the sets in it, and touches nothing else. No daemon, no web U
 Principles: simple, fast to use, seamless with nftables, dynamic enough, light on
 RAM. No resident process; the kernel holds the ranges, the binary runs and exits.
 
-**Status: v0.1.0, first working version, private.** The full design with
+**Status: v0.1.1, first working version.** The full design with
 rationale, nftables integration, config format, safety analysis and decision log
 is in [docs/DESIGN.md](docs/DESIGN.md).
 
@@ -69,8 +69,28 @@ touches the host firewall.
 
 ## Install
 
+### Debian / Ubuntu package
+
+Each release has a `firegeowall_<version>_amd64.deb` attached (static binary, runs
+on any amd64 Debian or Ubuntu with systemd and nftables):
+
 ```
-install -m 0755 target/release/fgw /usr/local/sbin/fgw
+apt install ./firegeowall_0.1.1-1_amd64.deb
+```
+
+The package installs `/usr/sbin/fgw`, the systemd units, the service user `fgw` and
+an empty `/etc/firegeowall/config.yml`, and **enables nothing**: you first add the
+hook chain to nftables. The steps are in `/usr/share/doc/firegeowall/README.Debian`.
+Upgrades keep your config and your enabled/disabled units; `apt purge` removes
+config, cache and state.
+
+Build the package yourself: `cargo deb --no-build` in the build container (after the
+release build above); the result lands in `target/debian/`.
+
+### By hand
+
+```
+install -m 0755 target/release/fgw /usr/sbin/fgw
 install -d /etc/firegeowall && install -m 0644 contrib/config.yml /etc/firegeowall/
 install -m 0644 contrib/nftables/50-firegeowall.conf /etc/nftables.d/   # adjust the interface
 install -m 0644 contrib/systemd/fgw-* /etc/systemd/system/
@@ -80,6 +100,9 @@ nft -f /etc/nftables.d/50-firegeowall.conf                             # or relo
 systemctl start fgw-update && systemctl enable --now fgw-restore fgw-update.timer
 fgw check && fgw status
 ```
+
+The units call `/usr/sbin/fgw`. Note that `contrib/config.yml` ships an example
+list (CN RU KP IR BY VN); the Debian package starts with an empty one.
 
 ## Non-goals
 
