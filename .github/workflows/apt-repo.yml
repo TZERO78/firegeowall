@@ -1,0 +1,117 @@
+# Publishes the signed APT repository on GitHub Pages.
+#
+# Nothing is compiled here: the .deb files are built locally in the build
+# container (see README) and attached to the GitHub releases together with a
+# .sha256 file. This workflow collects the .deb of every published release,
+# checks each against its .sha256, builds the index with apt-ftparchive, signs
+# it with the repository key (secret APT_SIGNING_KEY) and deploys it.
+#
+#   deb [signed-by=/etc/apt/keyrings/firegeowall.gpg] https://tzero78.github.io/firegeowall stable main
+name: apt-repo
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+env:
+  # Signing key fingerprint; the job fails if the secret holds a different key.
+  KEY_FPR: CF4173692FFEBB3F8BFA9BD841E5BAAD4FCBA55B
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Collect .deb files from all published releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p dl site/pool/main/f/firegeowall
+          gh release list -R "$GITHUB_REPOSITORY" --limit 200 --exclude-drafts --exclude-pre-releases \
+              --json tagName --jq '.[].tagName' > tags.txt
+          while read -r tag; do
+            gh release download "$tag" -R "$GITHUB_REPOSITORY" -D dl -p '*.deb' -p '*.deb.sha256' --clobber \
+              || echo "no .deb in $tag"
+          done < tags.txt
+          cd dl
+          ls *.deb >/dev/null
+          for f in *.deb; do
+            test -f "$f.sha256" || { echo "missing $f.sha256"; exit 1; }
+            sha256sum -c "$f.sha256"
+          done
+          mv *.deb ../site/pool/main/f/firegeowall/
+
+      - name: Build the index
+        run: |
+          set -euo pipefail
+          cd site
+          mkdir -p dists/stable/main/binary-amd64
+          apt-ftparchive packages pool > dists/stable/main/binary-amd64/Packages
+          gzip -9kn dists/stable/main/binary-amd64/Packages
+          apt-ftparchive \
+            -o APT::FTPArchive::Release::Origin=firegeowall \
+            -o APT::FTPArchive::Release::Label=firegeowall \
+            -o APT::FTPArchive::Release::Suite=stable \
+            -o APT::FTPArchive::Release::Codename=stable \
+            -o APT::FTPArchive::Release::Architectures=amd64 \
+            -o APT::FTPArchive::Release::Components=main \
+            -o "APT::FTPArchive::Release::Description=firegeowall (fgw) packages" \
+            release dists/stable > ../Release
+          mv ../Release dists/stable/Release
+          cp ../contrib/apt/firegeowall-archive-keyring.gpg ../contrib/apt/firegeowall-archive-keyring.asc \
+             ../contrib/apt/firegeowall.sources .
+          cat dists/stable/main/binary-amd64/Packages
+
+      - name: Sign
+        env:
+          APT_SIGNING_KEY: ${{ secrets.APT_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          export GNUPGHOME="$(mktemp -d)"
+          trap 'rm -rf "$GNUPGHOME"' EXIT
+          printf '%s\n' "$APT_SIGNING_KEY" | gpg --batch --quiet --import
+          gpg --batch --list-secret-keys --with-colons | grep -q "^fpr:::::::::$KEY_FPR:" \
+            || { echo "secret APT_SIGNING_KEY is not key $KEY_FPR"; exit 1; }
+          cd site/dists/stable
+          gpg --batch --yes --local-user "$KEY_FPR" --clearsign -o InRelease Release
+          gpg --batch --yes --local-user "$KEY_FPR" --armor --detach-sign -o Release.gpg Release
+          # Verify against the public keyring that is published and committed.
+          gpgv --keyring "$GITHUB_WORKSPACE/contrib/apt/firegeowall-archive-keyring.gpg" InRelease
+          gpgv --keyring "$GITHUB_WORKSPACE/contrib/apt/firegeowall-archive-keyring.gpg" Release.gpg Release
+
+      - name: Index page
+        run: |
+          cat > site/index.html <<'HTML'
+          <!doctype html><meta charset="utf-8"><title>firegeowall APT repository</title>
+          <h1>firegeowall APT repository</h1>
+          <p>Signed Debian/Ubuntu repository for <a href="https://github.com/TZERO78/firegeowall">firegeowall</a>.
+          Setup: see the README, section <em>Install &rarr; APT repository</em>.</p>
+          <p>Key fingerprint: <code>CF41 7369 2FFE BB3F 8BFA 9BD8 41E5 BAAD 4FCB A55B</code></p>
+          HTML
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

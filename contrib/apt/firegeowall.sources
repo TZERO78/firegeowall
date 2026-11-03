@@ -1,0 +1,9 @@
+# /etc/apt/sources.list.d/firegeowall.sources
+# Key: /etc/apt/keyrings/firegeowall.gpg (contrib/apt/firegeowall-archive-keyring.gpg)
+# Fingerprint: CF41 7369 2FFE BB3F 8BFA  9BD8 41E5 BAAD 4FCB A55B
+Types: deb
+URIs: https://tzero78.github.io/firegeowall
+Suites: stable
+Components: main
+Architectures: amd64
+Signed-By: /etc/apt/keyrings/firegeowall.gpg

@@ -72,6 +72,25 @@ touches the host firewall.
 
 ## Install
 
+### APT repository (Debian / Ubuntu, amd64)
+
+Signed repository on GitHub Pages; new releases arrive with `apt upgrade`.
+
+```
+sudo install -d -m 0755 /etc/apt/keyrings
+curl -fsSL https://tzero78.github.io/firegeowall/firegeowall-archive-keyring.gpg -o /tmp/fgw.gpg
+gpg --show-keys /tmp/fgw.gpg    # must show CF41 7369 2FFE BB3F 8BFA  9BD8 41E5 BAAD 4FCB A55B
+sudo install -m 0644 /tmp/fgw.gpg /etc/apt/keyrings/firegeowall.gpg   # 0644: apt verifies as user _apt
+sudo curl -fsSL https://tzero78.github.io/firegeowall/firegeowall.sources \
+    -o /etc/apt/sources.list.d/firegeowall.sources
+sudo apt update && sudo apt install firegeowall
+```
+
+The key is also in this repository (`contrib/apt/`). It signs the repository
+index only; the packages themselves are built from the tagged source in the
+bundled container and checked against the `.sha256` attached to each release
+before they enter the repository (`.github/workflows/apt-repo.yml`).
+
 ### Debian / Ubuntu package
 
 Each release has a `firegeowall_<version>_amd64.deb` attached (static binary, runs
