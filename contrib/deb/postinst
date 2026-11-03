@@ -13,6 +13,13 @@ if [ "$1" = "configure" ]; then
     if [ -d /run/systemd/system ]; then
         systemctl daemon-reload >/dev/null || true
     fi
+    # 0.1.2 added WantedBy=nftables.service to fgw-restore. Enabled units keep
+    # their old links on upgrade, so re-create them, but only if the operator
+    # had enabled the unit; a disabled one stays disabled.
+    if [ -n "$2" ] && dpkg --compare-versions "$2" lt 0.1.2 \
+        && systemctl is-enabled --quiet fgw-restore.service 2>/dev/null; then
+        systemctl reenable fgw-restore.service >/dev/null 2>&1 || true
+    fi
     if [ -z "$2" ]; then
         echo "firegeowall: installed, nothing enabled yet. Next steps:"
         echo "  /usr/share/doc/firegeowall/README.Debian"

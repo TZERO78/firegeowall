@@ -67,8 +67,8 @@ Every [release](https://github.com/TZERO78/firegeowall/releases) has the package
 and its checksum attached:
 
 ```sh
-sha256sum -c firegeowall_0.1.1-1_amd64.deb.sha256
-sudo apt install ./firegeowall_0.1.1-1_amd64.deb
+sha256sum -c firegeowall_0.1.2-1_amd64.deb.sha256
+sudo apt install ./firegeowall_0.1.2-1_amd64.deb
 ```
 
 Without the APT repository you get no updates through `apt upgrade`; install
@@ -125,7 +125,7 @@ final `fgw check`. A second run changes nothing.
       fgw_countries: [CN, RU, KP]   # Ansible owns the list
       # fgw_interface: ens6         # default: interface of the default route
       # fgw_install: deb            # a local package instead of the repository
-      # fgw_deb_src: target/debian/firegeowall_0.1.1-1_amd64.deb
+      # fgw_deb_src: target/debian/firegeowall_0.1.2-1_amd64.deb
 ```
 
 Ansible owns the country list: `fgw add` / `fgw remove` on the host are

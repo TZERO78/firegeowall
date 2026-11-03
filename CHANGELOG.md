@@ -7,6 +7,8 @@ its GitHub release notes.
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-11-03
+
 ### Added
 
 - Ansible role `contrib/ansible/roles/firegeowall`: installs the package from
@@ -23,9 +25,9 @@ its GitHub release notes.
 
 - After `systemctl stop nftables` and a later `start`, the sets stayed empty
   until the next reboot or timer run: `PartOf=` only passes on restarts.
-  `fgw-restore.service` is now also `WantedBy=nftables.service`. Run
-  `systemctl reenable fgw-restore.service` once after upgrading, so the new
-  link is created.
+  `fgw-restore.service` is now also `WantedBy=nftables.service`. The package
+  upgrade re-creates the unit links if the unit was enabled; nothing to do by
+  hand.
 - `fgw-restore.service` no longer has `Requisite=nftables.service`. Together
   with the new `WantedBy=` it made any service start bring a stopped nftables
   back up, and its `flush ruleset` wipes rules other tools loaded. Without the
@@ -80,6 +82,7 @@ First working version.
 - `fgw add` refuses the country of the current SSH session without `--force`.
 - Config edits keep comments; ISO 3166 check, so `UK` fails (it is `GB`).
 
-[Unreleased]: https://github.com/TZERO78/firegeowall/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/TZERO78/firegeowall/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/TZERO78/firegeowall/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/TZERO78/firegeowall/releases/tag/v0.1.1
 [0.1.0]: https://github.com/TZERO78/firegeowall/releases/tag/v0.1.0

@@ -9,7 +9,7 @@ owns one chain and the sets in it, and touches nothing else. No daemon, no web U
 Principles: simple, fast to use, seamless with nftables, dynamic enough, light on
 RAM. No resident process; the kernel holds the ranges, the binary runs and exits.
 
-**Status: v0.1.1.** Running in production on a Debian 13 server. Packages for
+**Status: v0.1.2.** Running in production on a Debian 13 server. Packages for
 Debian/Ubuntu (amd64) from a signed APT repository.
 
 ## Quick start
