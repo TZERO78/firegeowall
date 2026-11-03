@@ -9,9 +9,9 @@ owns one chain and the sets in it, and touches nothing else. No daemon, no web U
 Principles: simple, fast to use, seamless with nftables, dynamic enough, light on
 RAM. No resident process; the kernel holds the ranges, the binary runs and exits.
 
-**Status: design phase.** No code yet. The summary below is what will be built;
-the full design with rationale, nftables integration, config format, safety
-analysis and decision log is in [docs/DESIGN.md](docs/DESIGN.md).
+**Status: v0.1.0, first working version, private.** The full design with
+rationale, nftables integration, config format, safety analysis and decision log
+is in [docs/DESIGN.md](docs/DESIGN.md).
 
 ## Design
 
@@ -51,6 +51,35 @@ fgw update        refresh zone files and refill the sets (run by the timer)
 Configuration lives in `/etc/firegeowall/config.yml`: the country list, and the
 sources the range lists are fetched from, in priority order. Ansible and the CLI
 edit the same file.
+
+## Build and test
+
+No toolchain on the server: everything builds in a throwaway container.
+
+```
+podman build -t fgw-build contrib/build
+podman run --rm -v .:/src:Z fgw-build cargo build --release      # target/release/fgw, static musl, ~3 MB
+podman run --rm -v .:/src:Z fgw-build cargo test
+podman run --rm --cap-add NET_ADMIN --cap-add NET_RAW --cap-add SYS_ADMIN \
+    -v .:/src:Z fgw-build sh -c 'cargo build && sh tests/netns.sh'  # real nftables, real packets
+```
+
+The integration test runs in the container's own network namespace and never
+touches the host firewall.
+
+## Install
+
+```
+install -m 0755 target/release/fgw /usr/local/sbin/fgw
+install -d /etc/firegeowall && install -m 0644 contrib/config.yml /etc/firegeowall/
+install -m 0644 contrib/nftables/50-firegeowall.conf /etc/nftables.d/   # adjust the interface
+install -m 0644 contrib/systemd/fgw-* /etc/systemd/system/
+install -m 0644 contrib/systemd/sysusers-fgw.conf /etc/sysusers.d/fgw.conf
+systemd-sysusers && systemctl daemon-reload
+nft -f /etc/nftables.d/50-firegeowall.conf                             # or reload nftables
+systemctl start fgw-update && systemctl enable --now fgw-restore fgw-update.timer
+fgw check && fgw status
+```
 
 ## Non-goals
 

@@ -1,6 +1,6 @@
 # firegeowall design
 
-Status: design phase, 2026-11-01. Nothing here is implemented yet.
+Status: implemented in v0.1.0 (2026-11-03). Section 14 lists where the code deviates from the first draft.
 
 ## 0. Principles
 
@@ -190,11 +190,15 @@ sources:
     path: /etc/firegeowall/custom/{cc}.zone
     format: zone            # hand-maintained ranges, e.g. a hosting provider
 
-# Refuse to apply a set smaller than this many ranges (per family).
-# Protects against truncated downloads and empty lists.
+# Refuse a list with fewer ranges than this (per family). Small countries are
+# small: KP has one IPv4 range and no IPv6 list at all, so the floor is low.
 min_ranges:
-  ipv4: 1000
-  ipv6: 100
+  ipv4: 1
+  ipv6: 0
+
+# Refuse a list that shrank by more than this many percent against the cached
+# one. This is the real protection against truncated downloads.
+max_shrink_percent: 50
 
 # Names of the nftables objects. Change only if your ruleset differs.
 nft:
@@ -237,7 +241,8 @@ with countries) works without touching the `nft:` block.
 |---|---|---|
 | `interface` | interface of the default IPv4 route | detected at runtime; shown by `fgw status` |
 | `sources` | ipdeny only | db-ip and local sources are opt-in; one source keeps the default path simple |
-| `min_ranges.ipv4` / `.ipv6` | 1000 / 100 | |
+| `min_ranges.ipv4` / `.ipv6` | 1 / 0 | a missing IPv6 list (404) means "no IPv6 ranges" |
+| `max_shrink_percent` | 50 | against the cached list |
 | `nft.table` | `inet filter` | |
 | `nft.chain` | `geo_block` | owned and rebuilt by fgw |
 | `nft.set_prefix_v4` / `nft.set_prefix_v6` | `geo_` / `geo6_` | one set per country and family |
@@ -319,8 +324,8 @@ Total       24,430       6,325        1,842           31
    also keeps a running total in `state.json`.
 4. Record the timestamp and source in `/var/lib/firegeowall/state.json`.
 
-If any download fails, any file fails validation, or a set would be smaller than
-`min_ranges_*`, the run aborts before step 3 and the live sets stay as they are. The
+If any download fails, any file fails validation, or a list is below `min_ranges` or shrank by
+more than `max_shrink_percent`, the run aborts before step 3 and the live sets stay as they are. The
 failure is logged to the journal and `fgw status` shows `Health DEGRADED` with the
 reason.
 
@@ -334,7 +339,7 @@ shipped in `contrib/systemd/`:
 
 | Unit | When | What |
 |---|---|---|
-| `fgw-restore.service` | after `nftables.service` at boot, and again whenever nftables is restarted or reloaded (`PartOf=nftables.service`) | `fgw apply --from-cache`: fill the sets from `/var/lib/firegeowall/zones/`, no network |
+| `fgw-restore.service` | after `nftables.service` at boot, and again whenever nftables is restarted (`PartOf=`) or reloaded (`ReloadPropagatedFrom=` + `ExecReload=`) | `fgw apply --from-cache`: fill the sets from `/var/lib/firegeowall/zones/`, no network |
 | `fgw-update.timer` | `Sun 03:30`, randomised by up to 30 min, `Persistent=true` | starts `fgw-update.service` |
 | `fgw-update.service` | by the timer, or `systemctl start fgw-update` by hand | `fgw update`: fetch, validate, refill |
 
@@ -370,7 +375,7 @@ Design notes:
 | Risk | Mitigation |
 |---|---|
 | Lock yourself out | Block-list only; `add` refuses own country without `--force`; established connections are never cut; mesh interfaces are excluded |
-| Empty or truncated download | Per-line CIDR validation; `min_ranges_*`; abort before touching sets |
+| Empty or truncated download | Per-line CIDR validation, prefixes shorter than /8 (v4) or /12 (v6) rejected, `min_ranges`, `max_shrink_percent`; abort before touching sets |
 | Set empty or chain half built during update | Sets, elements, chain rules and deletions in one nftables transaction |
 | Bad nftables syntax | `nft -c` before `nft -f` |
 | Host unreachable after reboot | Fail-open by design; restore from cache without network |
@@ -382,7 +387,7 @@ Design notes:
 
 | Source | Format | Notes |
 |---|---|---|
-| ipdeny.com | `https://www.ipdeny.com/ipblocks/data/aggregated/CC-aggregated.zone`, `.../ipv6/data/aggregated/CC-aggregated.zone` | Free, no key, aggregated, updated daily |
+| ipdeny.com | `https://www.ipdeny.com/ipblocks/data/aggregated/CC-aggregated.zone`, `https://www.ipdeny.com/ipv6/ipaddresses/aggregated/CC-aggregated.zone` (404 for countries without IPv6) | Free, no key, aggregated, updated daily |
 | db-ip.com (lite) | monthly CSV `dbip-country-lite-YYYY-MM.csv.gz` | Fallback; CC BY 4.0, attribution in README |
 
 MaxMind GeoLite2 is deliberately not used: it needs an account key and its license
@@ -439,7 +444,7 @@ Rules that keep it that way:
 /etc/systemd/system/fgw-update.service     (from contrib/systemd/)
 /etc/systemd/system/fgw-update.timer
 /etc/systemd/system/fgw-restore.service
-/usr/lib/sysusers.d/fgw.conf                 (from contrib/systemd/sysusers-fgw.conf)
+/etc/sysusers.d/fgw.conf                     (from contrib/systemd/sysusers-fgw.conf)
 /var/lib/firegeowall/zones/CC.zone, CC.zone6
 /var/lib/firegeowall/state.json
 ```
@@ -476,3 +481,5 @@ None at the moment. Everything below was decided on 2026-11-01; see the decision
 | 2026-11-01 | Initial country list fixed: CN, RU, KP, IR, BY, VN; shipped in `contrib/config.yml` |
 | 2026-11-01 | Principles fixed: simple, fast to use, seamless with nft, dynamic enough, light on RAM. Default source ipdeny only; removed countries leave the cache; no CrowdSec statistics |
 | 2026-11-01 | Built-in defaults for the nft names and priority; `fgw check --print-nft` prints the expected snippet. Services run as unprivileged user `fgw` with `CAP_NET_ADMIN`; restore unit is `PartOf=nftables.service` |
+| 2026-11-03 | v0.1.0 implemented. Deviations from the draft: `min_ranges` default 1/0 instead of 1000/100 (BY has 105 IPv4 ranges, KP one and no IPv6) plus `max_shrink_percent: 50`; IPv6 404 = no IPv6 ranges, no set and no rule for that family; prefixes shorter than /8 or /12 rejected; reload of nftables propagated via `ReloadPropagatedFrom=` (PartOf covers only stop/restart); no `tracing` crate, stderr goes to the journal; ISO 3166 code check so `UK` fails; config lock via `flock` on `<state_dir>/lock` |
+| 2026-11-03 | Builds in a rootless Podman container (`contrib/build/Containerfile`), integration test `tests/netns.sh` drops real packets from a peer namespace |

@@ -1,0 +1,5 @@
+# Build and test image: `podman build -t fgw-build contrib/build`
+# Static musl binary, plus nftables for the namespace integration test.
+FROM docker.io/library/rust:alpine
+RUN rustup component add clippy rustfmt && apk add --no-cache nftables iproute2 util-linux
+WORKDIR /src

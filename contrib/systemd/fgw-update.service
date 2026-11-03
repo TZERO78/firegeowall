@@ -14,7 +14,7 @@ ExecStart=/usr/local/sbin/fgw update
 User=fgw
 Group=fgw
 StateDirectory=firegeowall
-StateDirectoryMode=0750
+StateDirectoryMode=0755
 # nftables is driven over netlink; CAP_NET_ADMIN is all that needs.
 AmbientCapabilities=CAP_NET_ADMIN
 CapabilityBoundingSet=CAP_NET_ADMIN
